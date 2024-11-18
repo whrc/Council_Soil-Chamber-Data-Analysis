@@ -1,0 +1,340 @@
+---
+title: "Council Soil Chambers Figs" #Breaking up the figures and data analysis codes 
+#time is in AK daylight time** NEE/RECO/GPP are in gC/m2/s; FCO2 and FCH4 are in gC/m2/s, flux_CO2 is in umol/m2/s; flux_CH4 is in nano mol/m2/s
+output: html_document
+date: "2024-11-18"
+---
+
+#Working code - very far from finalized / still a mess 
+
+#Note that for comparison purposes, both instruments 
+were used to measure chamber fluxes on July 18, 2018 --> remove potential measurement duplicates from this date?
+
+#measure the Net Ecosystem Exchange (NEE) with the transparent chamber during the day (when photosynthesis is occurring) and the Ecosystem Respiration (Reco) with the opaque chamber during the night (when only respiration is happening), then subtract the Reco value from the NEE value to get GPP: GPP = NEE (transparent chamber) - Reco (opaque chamber)
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Load libraries 
+```{r, include=FALSE}
+rm(list= ls())
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(openair)
+library(plotrix)
+library(signal)
+library(svMisc)
+library(zoo)
+library(stringr)
+library(plyr)
+library(viridis)
+library(lubridate)
+library(tidyverse)
+library(gridExtra)
+library(plotly)
+library(RColorBrewer)
+library(pracma)
+library(dplyr)
+library(openair)
+
+```
+
+#Load filtered and merged df of soil chamber fluxes, moisture, temp (I upload multiples but only using df_NEE_RECO2 and df_NEE_RECO2_GPP for analysis below)
+```{r}
+#filtered for p<0.05; units umol/m2/s or nmol/m2/s
+df_soilchambers_filtered = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_filtered_soil_chamber_fluxes_2017to2019.csv')
+
+#fluxes and moisture/temp df merged; FCO2 in units g/m2/s
+df_fulljoin = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+# *****************Use these two, above are just extra if needed for looking at*********************
+#used transparent and opaque chambers to identify NEE and RECO, then merged back together 
+df_NEE_RECO2 = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+#calculated GPP (NEE - Reco)
+df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_NEE_RECO2_GPP_2017to2019.csv')
+
+
+```
+
+
+#Boxplots exploring some data 
+```{r}
+library(tidyr)
+
+
+# Reshape the dataframe to long format
+df_long <- df_NEE_RECO2_GPP %>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>%
+  pivot_longer(cols = c(NEE, RECO, GPP), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+# Create the boxplot: NEE and RECO flux vs landscape position 
+ggplot(df_long, aes(x = landscape_position, y = flux_value, fill = flux_type)) +
+  geom_boxplot() +
+  labs(title = "NEE, GPP, and RECO vs Landscape Position",
+       x = "Landscape Position",
+       y = "Flux Value (gCO2/m²/s)",
+       fill = "Flux Type") +
+   geom_hline(yintercept = 0)+
+  theme_minimal()
+
+
+# EC plot type NEE and RECO flux vs landscape position 
+ggplot(df_long %>% filter(plot_type == "EC"),
+       aes(x = landscape_position, y = flux_value, fill = flux_type)) +
+  geom_boxplot() +
+  labs(title = "EC plots: NEE, GPP, and RECO vs Landscape Position",
+       x = "Landscape Position",
+       y = "Flux Value (gCO2/m²/s)",
+       fill = "Flux Type") +
+   geom_hline(yintercept = 0)+
+  theme_minimal()
+
+# MW plots by landscape position 
+ggplot(df_long %>% filter(plot_type == "MW"),
+       aes(x = landscape_position, y = flux_value, fill = flux_type)) +
+  geom_boxplot() +
+  labs(title = "MW plots: NEE, GPP, and RECO vs Landscape Position",
+       x = "Landscape Position",
+       y = "Flux Value (gCO2/m²/s)",
+       fill = "Flux Type") +
+   geom_hline(yintercept = 0)+
+  theme_minimal()
+
+# BGC plots by landscape position 
+ggplot(df_long %>% filter(plot_type == "BGC"),
+       aes(x = landscape_position, y = flux_value, fill = flux_type)) +
+  geom_boxplot() +
+  labs(title = "BGC plots: NEE, GPP, and RECO vs Landscape Position",
+       x = "Landscape Position",
+       y = "Flux Value (gCO2/m²/s)",
+       fill = "Flux Type") +
+   geom_hline(yintercept = 0)+
+  theme_minimal()
+
+#looking at FCH4 (in g/m2/s) by landscape position and plot type - scaled 
+ggplot(df_long,
+       aes(x=landscape_position, y = (FCH4 * 1000), fill = plot_type))+
+  geom_boxplot()+
+  labs( title = "FCH4 by plot type vs inundation",
+        x = "Landscape position",
+        y = "FCH4 (gCH4/m2/s)",
+        fill = "Plot Type")+
+  geom_hline(yintercept=0)+
+  theme_minimal() +
+  scale_y_continuous(limits = c(-0.0005, 0.0007))
+
+
+#looking at FCH4 (in g/m2/s) by inundation - scaled
+ggplot(df_long,
+       aes(x=inundated, y = (FCH4 * 1000), fill = plot_type))+
+  geom_boxplot()+
+  labs( title = "FCH4 vs inundation",
+        x = "Inundation",
+        y = "FCH4 (gCH4/m2/s)",
+        fill = "plot type")+
+  geom_hline(yintercept=0)+
+  theme_minimal() +
+  scale_y_continuous(limits = c(-0.0005, 0.0007))
+
+```
+
+#Boxplots of GPP flux by plot_type and landscape position / inundation
+```{r}
+#GPP of each plot type by landscape position 
+ggplot(df_long %>% filter(flux_type == "GPP"),
+       aes(x = landscape_position, y = flux_value, fill = plot_type)) +
+  geom_boxplot() +
+  labs(title = "GPP vs Landscape Position",
+       x = "landscape position",
+       y = "GPP(gCO2/m²/s)",
+       fill = "Plot Type") +
+   geom_hline(yintercept = 0)+
+  theme_minimal()
+
+
+
+#landscape position, plot type, and inundation 
+ggplot(df_long %>% filter(flux_type == "GPP"),
+       aes(x = plot_ID, y = flux_value, color = plot_type, shape = inundated )) +
+  geom_point() +
+  labs(title = "GPP vs Landscape Position & inundation",
+       x = "plot_ID",
+       y = "GPP(gCO2/m²/s)",
+       color = "Plot Type",
+       shape = 'inundated') +
+   geom_hline(yintercept = 0)+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+#closer look at inundation 
+ggplot(df_long %>% filter(flux_type == "GPP") %>%
+         drop_na(inundated), #drop_na () drops NAs, but here I can specify which NAs in which relevant rows to drop -- here I specify only to drop a row if "inundated = NA" (and leave other rows in NA alone)
+       aes(x = inundated, y = flux_value, color = plot_type )) +
+  geom_boxplot() +
+  labs(title = "GPP vs Landscape Position & inundation",
+       x = "plot_ID",
+       y = "GPP(gCO2/m²/s)",
+       color = "Inundation") +
+   geom_hline(yintercept = 0)+
+  theme_minimal() + 
+  scale_y_continuous(limits = c(-0.0001, 0.0002))
+
+#NEE based on inundation and landscape position --> no real differences seen 
+ggplot(df_long %>% filter(flux_type == "NEE") %>%
+         drop_na(inundated), 
+       aes(x=landscape_position, y = flux_value, color = inundated))+
+  geom_jitter() +
+  theme_minimal()
+
+#RECO based on inundation and landscape position --> no real differences seen 
+ggplot(df_long %>% filter(flux_type == "RECO") %>%
+         drop_na(inundated), 
+       aes(x=landscape_position, y = flux_value, color = inundated))+
+  geom_jitter() +
+  theme_minimal()
+  
+
+#GPP based on inundation and landscape position --> no real differences seen 
+ggplot(df_long %>% filter(flux_type == "GPP") %>%
+         drop_na(inundated), 
+       aes(x=landscape_position, y = flux_value, color = inundated))+
+  geom_jitter() +
+  theme_minimal()
+
+#Checking to see which plots are inundated 
+
+
+# Filter for inundated plots and create a bar plot to see which plots have inundation 
+ggplot(df_long %>% filter(inundated == "Y"), aes(x = plot_ID, fill = inundated)) +
+  geom_bar() +
+  labs(title = "Inundated Plots", x = "Plot ID", y = "Count") +
+  theme_minimal() +
+   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#seeing inundated vs not 
+ggplot(df_long %>% drop_na(inundated))+
+       aes(x=plot_ID, fill = inundated)+
+  geom_bar(position = "dodge")+
+  theme_minimal() 
+
+
+ggplot(df_long %>% drop_na(inundated))+
+       aes(x=plot_ID, fill = inundated)+
+  geom_bar()+
+    theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust =1))
+
+
+# looking at measurement date counts for each plot ID 
+ggplot(df_long, aes(x = plot_ID, fill = measurement_date)) +
+  geom_bar() +
+  labs(title = "Inundated Plots", x = "Plot ID", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+```
+
+#Filter df by landscape position and flux type (GPP, NEE, RECO)
+
+####Create new df for each plot type for analysis 
+```{r}
+library(nlme)
+library(lme4)
+# library(dplyr)
+# library(tidyr)
+
+
+# Step 1: Filter the dataframe for plot_ID = "EC" "MW" and "BGC", and by flux type to create df for diff analysis options
+
+#EC - eddy covar tower plot types 
+df_EC <- df_NEE_RECO2_GPP %>%
+  filter(plot_type == "EC")
+
+#EC - eddy covar tower plot types; just another way to subset - doing it this way saves you from having to make df_EC into d_long format, but below way allows you to choose variables of interest and simplify the df
+df_EC2 <- df_long %>%
+  filter(plot_type == "EC")
+
+#MW - moisture warming plot types 
+df_MW <- df_NEE_RECO2_GPP %>%
+  filter(plot_type == "MW")
+
+#BGC - biogeochem plot types 
+df_BGC <- df_NEE_RECO2_GPP %>%
+  filter(plot_type == "BGC")
+
+#GPP
+df_GPP <-df_long %>%
+  filter(flux_type == "GPP")
+
+#NEE
+df_NEE <-df_long %>%
+  filter(flux_type == "NEE")
+#RECO
+df_RECO <-df_long %>%
+  filter(flux_type == "RECO")
+
+
+# Step 2: Reshape the dataframe to long format and choose variables of interest 
+
+#EC
+df_EClong <- df_EC %>%
+  #select(plot_ID, plot_type, landscape_position, measurement_date, NEE, RECO, GPP) %>% *choosing variables of interest 
+  select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>% #choosing all variables or just subset from the d_long data 
+  pivot_longer(cols = c(NEE, RECO, GPP), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+#MW
+df_MWlong <- df_MW %>%
+  #select(plot_ID, plot_type, landscape_position, measurement_date, NEE, RECO, GPP) %>%
+   select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>% #choosing all variables or just subset from the d_long data 
+  pivot_longer(cols = c(NEE, RECO, GPP), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+#BGC
+df_BGClong <- df_BGC %>%
+  #select(plot_ID, plot_type, landscape_position, measurement_date, NEE, RECO, GPP) %>%
+   select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>% #choosing all variables or just subset from the d_long data 
+  pivot_longer(cols = c(NEE, RECO, GPP), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+
+#Re-arrange by flux type (NEE, GPP, RECO) so you can analyze more easily 
+
+# Sort the dataframe by the flux_type column 
+df_EClong <- df_EClong %>% arrange(flux_type)
+df_MWlong <- df_MWlong %>% arrange(flux_type)
+df_BGClong <- df_BGClong %>% arrange(flux_type)
+
+```
+
+#Checking out the overall data, filtered, but not subset 
+```{r}
+library(ggplot2)
+
+#plot - filtered df but not converted or subset, units are umolC/m2/s
+
+# Create the scatter plot
+ggplot(df_soilchambers_filtered, aes(x = measurement_date, y = flux_CO2, 
+                                      color = landscape_position, shape = chamber_type)) +
+  geom_point(size = 3, position = position_jitter(width = 0.8, height = 0)) +  # Adjust point size for better visibility
+  labs(x = "Measurement Date", y = "CO2 Flux (umol/m2/s)", 
+       title = "CO2 Flux vs Measurement Date by Landscape Position and Chamber Type") +
+  scale_color_manual(values = c("upland" = "green", "lowland" = "blue", "slope" = "red")) +  # Adjust color palette as needed
+  theme_minimal() +  # Apply minimal theme for a clean look
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for better readability
+
+
+
+```

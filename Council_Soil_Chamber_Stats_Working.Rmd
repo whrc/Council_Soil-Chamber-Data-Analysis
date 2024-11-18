@@ -1,0 +1,1002 @@
+---
+title: "Council Soil Chamber Analysis - STATS"#Breaking up the figures and data analysis codes 
+#time is in AK daylight time** NEE/RECO/GPP are in gC/m2/s; FCO2 and FCH4 are in gC/m2/s, flux_CO2 is in umol/m2/s; flux_CH4 is in nano mol/m2/s
+output: html_document
+date: "2024-11-18"
+---
+
+#Working code - very far from finalized / still a mess 
+
+#Note that for comparison purposes, both instruments 
+were used to measure chamber fluxes on July 18, 2018 --> remove potential measurement duplicates from this date?
+
+#measure the Net Ecosystem Exchange (NEE) with the transparent chamber during the day (when photosynthesis is occurring) and the Ecosystem Respiration (Reco) with the opaque chamber during the night (when only respiration is happening), then subtract the Reco value from the NEE value to get GPP: GPP = NEE (transparent chamber) - Reco (opaque chamber)
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#Load libraries 
+```{r, include=FALSE}
+rm(list= ls())
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(openair)
+library(plotrix)
+library(signal)
+library(svMisc)
+library(zoo)
+library(stringr)
+library(plyr)
+library(viridis)
+library(lubridate)
+library(tidyverse)
+library(gridExtra)
+library(plotly)
+library(RColorBrewer)
+library(pracma)
+library(dplyr)
+library(openair)
+
+```
+
+#Load filtered and merged df of soil chamber fluxes, moisture, temp (I upload multiples but only using df_NEE_RECO2 and df_NEE_RECO2_GPP for analysis below)
+```{r}
+#filtered for p<0.05; units umol/m2/s or nmol/m2/s
+df_soilchambers_filtered = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_filtered_soil_chamber_fluxes_2017to2019.csv')
+
+#fluxes and moisture/temp df merged; FCO2 in units g/m2/s
+df_fulljoin = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+# *****************Use these two, above are just extra if needed for looking at*********************
+#used transparent and opaque chambers to identify NEE and RECO, then merged back together 
+df_NEE_RECO2 = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+#calculated GPP (NEE - Reco)
+df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_NEE_RECO2_GPP_2017to2019.csv')
+
+
+```
+
+
+#Boxplots exploring some data 
+```{r}
+library(tidyr)
+
+
+# Reshape the dataframe to long format
+df_long <- df_NEE_RECO2_GPP %>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>%
+  pivot_longer(cols = c(NEE, RECO, GPP), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+
+```
+
+
+#Filter df by landscape position and flux type (GPP, NEE, RECO)
+
+####Create new df for each plot type for analysis 
+```{r}
+library(nlme)
+library(lme4)
+# library(dplyr)
+# library(tidyr)
+
+
+# Step 1: Filter the dataframe for plot_ID = "EC" "MW" and "BGC", and by flux type to create df for diff analysis options
+
+#EC - eddy covar tower plot types 
+df_EC <- df_NEE_RECO2_GPP %>%
+  filter(plot_type == "EC")
+
+#EC - eddy covar tower plot types; just another way to subset - doing it this way saves you from having to make df_EC into d_long format, but below way allows you to choose variables of interest and simplify the df
+df_EC2 <- df_long %>%
+  filter(plot_type == "EC")
+
+#MW - moisture warming plot types 
+df_MW <- df_NEE_RECO2_GPP %>%
+  filter(plot_type == "MW")
+
+#BGC - biogeochem plot types 
+df_BGC <- df_NEE_RECO2_GPP %>%
+  filter(plot_type == "BGC")
+
+#GPP
+df_GPP <-df_long %>%
+  filter(flux_type == "GPP")
+
+#NEE
+df_NEE <-df_long %>%
+  filter(flux_type == "NEE")
+#RECO
+df_RECO <-df_long %>%
+  filter(flux_type == "RECO")
+
+
+# Step 2: Reshape the dataframe to long format and choose variables of interest 
+
+#EC
+df_EClong <- df_EC %>%
+  #select(plot_ID, plot_type, landscape_position, measurement_date, NEE, RECO, GPP) %>% *choosing variables of interest 
+  select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>% #choosing all variables or just subset from the d_long data 
+  pivot_longer(cols = c(NEE, RECO, GPP), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+#MW
+df_MWlong <- df_MW %>%
+  #select(plot_ID, plot_type, landscape_position, measurement_date, NEE, RECO, GPP) %>%
+   select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>% #choosing all variables or just subset from the d_long data 
+  pivot_longer(cols = c(NEE, RECO, GPP), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+#BGC
+df_BGClong <- df_BGC %>%
+  #select(plot_ID, plot_type, landscape_position, measurement_date, NEE, RECO, GPP) %>%
+   select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>% #choosing all variables or just subset from the d_long data 
+  pivot_longer(cols = c(NEE, RECO, GPP), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+
+#Re-arrange by flux type (NEE, GPP, RECO) so you can analyze more easily 
+
+# Sort the dataframe by the flux_type column 
+df_EClong <- df_EClong %>% arrange(flux_type)
+df_MWlong <- df_MWlong %>% arrange(flux_type)
+df_BGClong <- df_BGClong %>% arrange(flux_type)
+
+```
+
+#Exploratory analysis 
+
+#NEE
+
+#df_NEE: Testing df_NEE models 
+
+```{r}
+
+#Testing parameters in df_NEE as a whole  - using Kyle's "fluxes" code as guide 
+
+#Make plot_ID, inundated, plot_type, landscape_position, and soil temp at 10cm as factor so they'll work with gls
+
+df_NEE$plot_ID = factor(df_NEE$plot_ID)
+df_NEE$plot_type = factor (df_NEE$plot_type)
+df_NEE$landscape_position = factor(df_NEE$landscape_position)
+df_NEE$inundated = factor(df_NEE$inundated)
+df_NEE$soil_temp_10_cm = factor (df_NEE$soil_temp_10_cm)
+
+#Tried with both 'ML' and 'REML' - no major diffs in results 
+library(nlme)
+#gls - no random effect
+gls.NEE = gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, data = df_NEE, method = 'ML', na.action=na.exclude)
+anova(gls.NEE) #this shows no sig diff in flux type among these 
+
+#lme - with random effect of plot_ID
+lme.NEE <- lme(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, 
+               random = ~1 | plot_ID, 
+               data = df_NEE, na.action=na.exclude , 
+               method = 'ML')
+anova(lme.NEE) #shows no sig diff in flux types among these 
+
+#Comparing the models 
+anova(gls.NEE, lme.NEE) #shows no diff in model with or without random effect - so random effect not needed here 
+
+```
+
+####Checking each variable on its own 
+```{r}
+#double checking each var on its own 
+
+gls.NEE.landscape = gls(flux_value ~ landscape_position, data = df_NEE, method = 'ML', na.action=na.exclude)
+anova(gls.NEE.landscape) #p=0.11, not sig 
+
+gls.NEE.plottype = gls(flux_value ~ plot_type, data = df_NEE, method = 'ML', na.action=na.exclude)
+anova(gls.NEE.plottype) #p=0.0645, not sig 
+
+gls.NEE.inundated = gls(flux_value ~ inundated, data = df_NEE, method = 'ML', na.action=na.exclude)
+anova(gls.NEE.inundated) #p=0.32, not sig 
+
+gls.NEE.soiltemp = gls(flux_value ~ soil_temp_10_cm, data = df_NEE, method = 'ML', na.action=na.exclude)
+anova(gls.NEE.soiltemp) #p=0.98, not sig 
+
+```
+
+#### Variance Structre - df_NEE
+```{r}
+#testing variance structure 
+
+#based on inundation
+var.NEE.inundated = update(gls.NEE, weights = varIdent(form = ~1|inundated))
+anova(var.NEE.inundated) #now showing sig diffs in plot_type (p=0.013), landscape (<0.0001), and soil temp (<0.0001)
+anova(gls.NEE, var.NEE.inundated) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (lower AIC, lower BIC, and higher L.Ratio)
+
+#based on landscape position
+var.NEE.landpos = update(gls.NEE, weights = varIdent(form = ~1|landscape_position))
+anova(var.NEE.landpos) #now showing sig diffs for soil temp (<0.0001)
+anova(gls.NEE, var.NEE.landpos) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (lower AIC, lower BIC, and higher LogLik)
+
+#based on plot type 
+var.NEE.plottype = update(gls.NEE, weights = varIdent(form = ~1|plot_type))
+anova(var.NEE.plottype) #now showing sig diffs for landscape pos (p=<0.0001), inundated (p=0.005), soil temp (<0.0001)
+anova(gls.NEE, var.NEE.plottype) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (lower AIC, lower BIC, and higher LogLik)
+
+#based on soil temp --> will not work for this model, "false convergence"
+var.NEE.soiltemp = update(gls.NEE, weights = varIdent(form = ~1|soil_temp_10_cm))
+anova(var.NEE.soiltemp) #"false convergence", will not work for this var structure 
+
+#now testing which models are best fit 
+anova(var.NEE.inundated, var.NEE.landpos, var.NEE.plottype) #sig improvement in landpos over inundated 
+anova(var.NEE.inundated, var.NEE.landpos) #land pos better 
+anova(var.NEE.inundated,var.NEE.plottype) #plot type better
+anova(var.NEE.landpos, var.NEE.plottype) #no sig diff but plottype lower AIC/BIC, higher logLik
+```
+
+#### Multiple Var structure - NEE 
+```{R}
+#looking at models with multiple variance structures 
+#inundation and land pos 
+library(nlme)
+var.NEE.landpos.inun = update(gls.NEE, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | landscape_position)))
+
+anova(var.NEE.landpos.inun) #shows sig diff in soil temp (p<0.0001)
+
+#inundation and plot type 
+var.NEE.plottype.inun = update(gls.NEE, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | plot_type)))
+
+anova(var.NEE.plottype.inun) #shows sig diff in all variables 
+
+
+#land pos and plot type 
+var.NEE.landpos.plottype = update(gls.NEE, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)))
+
+anova(var.NEE.landpos.plottype) #all variables sig 
+
+
+anova(var.NEE.landpos.inun,var.NEE.plottype.inun) #no sig diff here, but AIC/BIC lower & logLik higher in plottype.inun
+
+anova(var.NEE.landpos.inun, var.NEE.landpos.plottype, var.NEE.plottype.inun) #landpos.plottype is better than landpos.inun, and plottype.inun is better than landpos.plottype --> appears plottype and inun is best model of these three 
+
+
+#land pos and plot type and inun
+var.NEE.all = update(gls.NEE, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type), varIdent(form = ~1 |inundated)))
+
+anova(var.NEE.all) #all variables sig 
+
+#testing all multiple var models 
+anova(var.NEE.plottype.inun, var.NEE.all) #NEE.all is better fit, sig 
+anova(var.NEE.landpos.inun, var.NEE.landpos.plottype, var.NEE.plottype.inun, var.NEE.all) #sig diff, but NEE.plottype.inun has lower AIC/BIC, higher logLik --> seems to fit best
+
+#testing multiple var models with single var models 
+anova(gls.NEE, var.NEE.plottype.inun, var.NEE.inundated, var.NEE.landpos, var.NEE.plottype)
+#NEE.plottype.inun has lowest AIC/BIC, highest logLik so it appears to be better model 
+
+
+#looking at fixed effects with selected model of var.NEE.plottype.inun 
+anova(var.NEE.plottype.inun, type = "marginal") #plot type (p=0.046), and soil temp (p<0.0001) are sig, inundated is marginal (p=0.055)
+
+
+#refit with REML
+NEE.final = update(var.NEE.plottype.inun, method = "REML")
+anova(NEE.final) #plot type marginal (p=0.056), landscap pos and soil temp are sig 
+
+
+```
+
+####NEE.final model - Plot model residuals and qqplot
+```{r}
+#plot model residuals (homogeneity of variance)
+plot(NEE.final)
+
+#qqplot to verify normality
+qqnorm(NEE.final)
+
+#checking how this QQ plot compares to plots created with normally distributed residuals
+
+op <- par(mar = c(2,2,1,1), mfrow = c(5,5))
+
+# create first qq plot using model residuals
+# color it red
+qqnorm(residuals(NEE.final), xlab = "", ylab = "", main = "", 
+       col = "red")
+qqline(residuals(NEE.final))
+
+# now create 24 qq plots using Normal data with sigma(dataset)
+for(i in 1:24){
+  # rnorm() samples from a Normal distribution  
+  d <- rnorm(length(residuals(NEE.final)), 
+             mean = 0, sd = sigma(NEE.final))
+  qqnorm(d, xlab = "", ylab = "", main = "")
+  qqline(d)
+}
+
+#doesn't look awful, doesn't look great....have Kyle take a look 
+
+#For further testing, if needed 
+qqnorm(residuals(NEE.final))
+hist(residuals(NEE.final)) #shows a bit of left skew
+
+```
+
+#GPP
+
+#df_GPP: Testing df_GPP models 
+```{r}
+#Testing parameters in df_GPP as a whole  - using Kyle's "fluxes" code as guide 
+
+#Make plot_ID, inundated, plot_type, landscape_position, and soil temp at 10cm as factor so they'll work with gls
+
+df_GPP$plot_ID = factor(df_GPP$plot_ID)
+df_GPP$plot_type = factor (df_GPP$plot_type)
+df_GPP$landscape_position = factor(df_GPP$landscape_position)
+df_GPP$inundated = factor(df_GPP$inundated)
+df_GPP$soil_temp_10_cm = factor (df_GPP$soil_temp_10_cm)
+
+
+#need to remove NA's - check for NAs and remove 
+sum(is.na(df_GPP))
+summary(df_GPP$soil_temp_10_cm)
+# Omit rows with NA values in specific columns so it works with analyses below 
+df_GPP.c1 <- df_GPP[complete.cases(df_GPP[, c("inundated")]), ]
+df_GPP.c2 <- df_GPP[complete.cases(df_GPP[, c("soil_temp_10_cm")]), ]
+df_GPP.c3 <- df_GPP[complete.cases(df_GPP[, c("flux_value")]), ]
+sum(is.na(df_GPP.c3$flux_value)) #double check to make sure NAs are gone -> gone 
+sum(is.infinite(df_GPP.c3$flux_value)) #and infinite values? --> no
+
+
+
+#Tried with both 'ML' and 'REML' - no major diffs in results 
+library(nlme)
+#gls - no random effect
+gls.GPP = gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, data = df_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.GPP) #this shows no sig diff in flux type among these 
+
+#lme - with random effect of plot_ID
+lme.GPP <- lme(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, 
+               random = ~1 | plot_ID, 
+               data = df_GPP, na.action=na.exclude , 
+               method = 'ML')
+anova(lme.GPP) #shows no sig diff in flux types among these 
+
+#Comparing the models 
+anova(gls.GPP, lme.GPP) #shows no diff in model with or without random effect - so random effect not needed here 
+
+```
+
+####Checking each variable on its own 
+```{r}
+#double checking each var on its own 
+
+gls.GPP.landscape = gls(flux_value ~ landscape_position, data = df_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.GPP.landscape) #p=0.29, not sig 
+
+gls.GPP.plottype = gls(flux_value ~ plot_type, data = df_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.GPP.plottype) #p=0.259, not sig 
+
+gls.GPP.inundated = gls(flux_value ~ inundated, data = df_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.GPP.inundated) #p=0.65, not sig 
+
+gls.GPP.soiltemp = gls(flux_value ~ soil_temp_10_cm, data = df_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.GPP.soiltemp) #p=0.93, not sig 
+
+```
+
+#****Variance Structure -GPP- inundation and soil temp not working 
+```{r}
+#######################################################################################################
+##stopped here, without inundation and soil temp, can't properly test models 
+
+#select variance structure 
+#based on inundation --> won't work, error: "Error in eigen(val, only.values = TRUE) : infinite or missing values in 'x'"
+var.GPP.inundated = update(gls.GPP, weights = varIdent(form = ~1|inundated))
+anova(var.GPP.inundated) 
+anova(gls.GPP, var.GPP.inundated) 
+
+#based on landscape position
+var.GPP.landpos = update(gls.GPP, weights = varIdent(form = ~1|landscape_position))
+anova(var.GPP.landpos) #now showing sig diffs for soil temp (<0.03)
+anova(gls.GPP, var.GPP.landpos) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (lower AIC, lower BIC, and higher LogLik)
+
+#based on plot type 
+var.GPP.plottype = update(gls.GPP, weights = varIdent(form = ~1|plot_type))
+anova(var.GPP.plottype) #now showing sig diffs for soil (<0.0001), landscape pos (0.0001), and plot (0.0019)
+anova(gls.GPP, var.GPP.plottype) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (lower AIC, lower BIC, and higher LogLik)
+
+#based on soil temp --> "infinite or missing values in x"
+var.GPP.soiltemp = update(gls.GPP, weights = varIdent(form = ~1|soil_temp_10_cm), na.action=na.exclude)
+anova(var.GPP.soiltemp) 
+
+#now testing which models are best fit 
+#anova(var.GPP.inundated, var.GPP.landpos, var.GPP.plottype) #inundation won't work 
+# anova(var.GPP.inundated, var.GPP.landpos) 
+# anova(var.GPP.inundated,var.GPP.plottype) 
+anova(var.GPP.landpos, var.GPP.plottype) #no sig diff but plottype lower AIC/BIC, higher logLik
+
+```
+
+#### Multiple Var structure - GPP
+
+```{r}
+#looking at models with multiple variance structures 
+#inundation and land pos 
+library(nlme)
+var.GPP.landpos.inun = update(gls.GPP, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | landscape_position)))
+
+anova(var.GPP.landpos.inun) #shows sig diff in soil temp (p<0.0001)
+
+#inundation and plot type 
+var.GPP.plottype.inun = update(gls.GPP, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | plot_type)))
+
+anova(var.GPP.plottype.inun) #shows sig diff in all variables 
+
+
+
+#land pos and plot type 
+var.GPP.landpos.plottype = update(gls.GPP, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)))
+
+anova(var.GPP.landpos.plottype) #all variables sig 
+
+
+anova(var.GPP.landpos.inun,var.GPP.plottype.inun) #no sig diff here, but AIC/BIC lower & logLik higher in plottype.inun
+
+anova(var.GPP.landpos.inun, var.GPP.landpos.plottype, var.GPP.plottype.inun) #landpos.plottype is better than landpos.inun, and plottype.inun is better than landpos.plottype --> appears plottype and inun is best model of these three 
+
+
+#land pos and plot type and inun
+var.GPP.all = update(gls.GPP, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type), varIdent(form = ~1 |inundated)))
+
+anova(var.GPP.all) #all variables sig 
+
+#testing all multiple var models 
+anova(var.GPP.plottype.inun, var.GPP.all) #GPP.all is better fit, sig 
+anova(var.GPP.landpos.inun, var.GPP.landpos.plottype, var.GPP.plottype.inun, var.GPP.all) #sig diff, but GPP.plottype.inun has lower AIC/BIC, higher logLik --> seems to fit best
+
+#testing multiple var models with single var models 
+anova(gls.GPP, var.GPP.plottype.inun, var.GPP.inundated, var.GPP.landpos, var.GPP.plottype)
+#GPP.plottype.inun has lowest AIC/BIC, highest logLik so it appears to be better model 
+
+
+#looking at fixed effects with selected model of var.GPP.plottype.inun 
+anova(var.GPP.plottype.inun, type = "marginal") #plot type (p=0.046), and soil temp (p<0.0001) are sig, inundated is marginal (p=0.055)
+
+
+#refit with REML
+GPP.final = update(var.GPP.plottype.inun, method = "REML")
+anova(GPP.final) #plot type marginal (p=0.056), landscap pos and soil temp are sig 
+
+
+
+```
+
+
+#RECO
+
+#df_RECO: Testing df_RECO models 
+```{r}
+#Testing parameters in df_RECO as a whole  - using Kyle's "fluxes" code as guide 
+
+#Make plot_ID, inundated, plot_type, landscape_position, and soil temp at 10cm as factor so they'll work with gls
+
+df_RECO$plot_ID = factor(df_RECO$plot_ID)
+df_RECO$plot_type = factor (df_RECO$plot_type)
+df_RECO$landscape_position = factor(df_RECO$landscape_position)
+df_RECO$inundated = factor(df_RECO$inundated)
+df_RECO$soil_temp_10_cm = factor (df_RECO$soil_temp_10_cm)
+
+#Tried with both 'ML' and 'REML' - no major diffs in results 
+
+#gls - no random effect
+gls.RECO = gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, data = df_RECO, method = 'ML', na.action=na.exclude)
+anova(gls.RECO) #sig diff in soil temp p=0.0023
+
+#lme - with random effect of plot_ID
+lme.RECO <- lme(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, 
+               random = ~1 | plot_ID, 
+               data = df_RECO, na.action=na.exclude , 
+               method = 'ML')
+anova(lme.RECO) #sig diff in soil temp, p =0.011
+
+#Comparing the models 
+anova(gls.RECO, lme.RECO) #shows no diff in model with or without random effect - so random effect not needed here 
+
+```
+####Checking each variable on its own 
+```{r}
+#double checking each var on its own 
+
+gls.RECO.landscape = gls(flux_value ~ landscape_position, data = df_RECO, method = 'ML', na.action=na.exclude)
+anova(gls.RECO.landscape) #p=0.88, not sig 
+
+gls.RECO.plottype = gls(flux_value ~ plot_type, data = df_RECO, method = 'ML', na.action=na.exclude)
+anova(gls.RECO.plottype) #p=0.49, not sig 
+
+gls.RECO.inundated = gls(flux_value ~ inundated, data = df_RECO, method = 'ML', na.action=na.exclude)
+anova(gls.RECO.inundated) #p=0.51, not sig 
+
+gls.RECO.soiltemp = gls(flux_value ~ soil_temp_10_cm, data = df_RECO, method = 'ML', na.action=na.exclude)
+anova(gls.RECO.soiltemp) #p=0.006, Sig*****************************
+
+```
+###**Variance Structure - RECO *** inundation and soil temp not working here 
+```{r}
+#select variance structure --> temp and inundation aren't working here*
+
+#based on inundation --> won't work, error: "Error in eigen(val, only.values = TRUE) : infinite or missing values in 'x'"
+var.RECO.inundated = update(gls.RECO, weights = varIdent(form = ~1|inundated), na.action=na.exclude)
+anova(var.RECO.inundated) 
+anova(gls.RECO, var.RECO.inundated) 
+
+#based on landscape position
+var.RECO.landpos = update(gls.RECO, weights = varIdent(form = ~1|landscape_position))
+anova(var.RECO.landpos) #now showing sig diffs for soil temp (p=0.0007)
+anova(gls.RECO, var.RECO.landpos) #p = 0.59 - var does not improve model 
+
+#based on plot type 
+var.RECO.plottype = update(gls.RECO, weights = varIdent(form = ~1|plot_type))
+anova(var.RECO.plottype) #now showing sig diffs for soil temp, landscape pos, and inundated (p<0.01)
+anova(gls.RECO, var.RECO.plottype) #p = <0.0001, adding in the variance by iplottype significantly improves the model fit (lower AIC, lower BIC, and higher LogLik)
+
+#based on soil temp --> "infinite or missing values in x"
+var.RECO.soiltemp = update(gls.RECO, weights = varIdent(form = ~1|soil_temp_10_cm), na.action=na.exclude)
+anova(var.RECO.soiltemp) 
+
+#now testing which models are best fit 
+#anova(var.RECO.inundated, var.RECO.landpos, var.RECO.plottype) #inundation won't work 
+# anova(var.RECO.inundated, var.RECO.landpos) 
+# anova(var.RECO.inundated,var.RECO.plottype) 
+anova(var.RECO.landpos, var.RECO.plottype) #no sig diff but plottype lower AIC/BIC, higher logLik
+
+```
+
+#Multiple Var Structure - RECO  *inundation and soil temp won't work 
+```{r}
+#looking at models with multiple variance structures 
+#inundation and land pos 
+library(nlme)
+var.RECO.landpos.inun = update(gls.RECO, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | landscape_position)))
+
+anova(var.RECO.landpos.inun) #shows sig diff in soil temp (p<0.0001)
+
+#inundation and plot type 
+var.RECO.plottype.inun = update(gls.RECO, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | plot_type)))
+
+anova(var.RECO.plottype.inun) #shows sig diff in all variables 
+
+
+
+#land pos and plot type 
+var.RECO.landpos.plottype = update(gls.RECO, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)))
+
+anova(var.RECO.landpos.plottype) #all variables sig 
+
+
+anova(var.RECO.landpos.inun,var.RECO.plottype.inun) #no sig diff here, but AIC/BIC lower & logLik higher in plottype.inun
+
+anova(var.RECO.landpos.inun, var.RECO.landpos.plottype, var.RECO.plottype.inun) #landpos.plottype is better than landpos.inun, and plottype.inun is better than landpos.plottype --> appears plottype and inun is best model of these three 
+
+
+#land pos and plot type and inun
+var.RECO.all = update(gls.RECO, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type), varIdent(form = ~1 |inundated)))
+
+anova(var.RECO.all) #all variables sig 
+
+#testing all multiple var models 
+anova(var.RECO.plottype.inun, var.RECO.all) #RECO.all is better fit, sig 
+anova(var.RECO.landpos.inun, var.RECO.landpos.plottype, var.RECO.plottype.inun, var.RECO.all) #sig diff, but RECO.plottype.inun has lower AIC/BIC, higher logLik --> seems to fit best
+
+#testing multiple var models with single var models 
+anova(gls.RECO, var.RECO.plottype.inun, var.RECO.inundated, var.RECO.landpos, var.RECO.plottype)
+#RECO.plottype.inun has lowest AIC/BIC, highest logLik so it appears to be better model 
+
+
+#looking at fixed effects with selected model of var.RECO.plottype.inun 
+anova(var.RECO.plottype.inun, type = "marginal") #plot type (p=0.046), and soil temp (p<0.0001) are sig, inundated is marginal (p=0.055)
+
+
+#refit with REML
+RECO.final = update(var.RECO.plottype.inun, method = "REML")
+anova(RECO.final) #plot type marginal (p=0.056), landscap pos and soil temp are sig 
+
+
+
+```
+
+
+#Older code, ignore for now 
+
+
+#### EC plots - NEE 
+```{r}
+# Load nlme package
+library(nlme)
+library(lme4)
+library(agricolae)
+library(car)
+library(emmeans)
+
+df_EC_NEE <- df_EClong %>% filter(flux_type == "NEE")
+
+
+#histogram of distr of data in df_NEE
+hist(df_EC_NEE$flux_value)
+#skewed a bit to the left
+
+library(lme4)
+EC_GPP_LMM <- lmer(flux_value ~ landscape_position + (1|plot_ID), data = df_EC_GPP)
+summary(EC_GPP_LMM, corr = F) #model with random effect 
+Anova(EC_GPP_LMM, type = "II", test.statistic = "F", ddf = "Kenward-Roger") #Can only be used with REML
+#p=0.157; not sig 
+
+#testing which model is more appropriate, using plot_ID as a random effect 
+library(lme4)
+EC_GPP_LMM <- lmer(flux_value ~ landscape_position + (1|plot_ID), data = df_EC_GPP, REML = FALSE )
+EC_GPP_LMM_null <- lmer(flux_value ~ 1 + (1|plot_ID), data = df_EC_GPP, REML = FALSE )
+#looking at if the random effect even matters, this seems to say it does not
+#maybe try weighting by factors using varIdent 
+anova(EC_GPP_LMM,EC_GPP_LMM_null) #compares models --> p = 0.09, no sig diff 
+
+
+
+
+```
+
+```{r}
+
+
+
+
+#these below fit with ML
+library(nlme)
+model_NEE <- lme(flux_value ~ landscape_position, random = ~1 | plot_ID, data = df_EC_NEE,method = 'ML')
+summary(model_NEE)
+anova(model_NEE) #p = 0.07 - can't customize ANOVA test stats in nlme 
+
+
+#Fits with REML 
+library(nlme)
+EC_NEE_NLME <- lme(flux_value ~ landscape_position, random = ~1 | plot_ID, data = df_EC_NEE)
+summary(EC_NEE_NLME)
+anova(EC_NEE_NLME)
+
+
+library(lme4)
+EC_NEE_LMM<- lmer(flux_value ~ landscape_position + (1|plot_ID), data = df_EC_NEE )
+summary(EC_NEE_LMM, corr = F)
+Anova(EC_NEE_LMM, type = "II", test.statistic = "F", ddf = "Kenward-Roger")
+#p=0.087; not sig 
+
+#testing the model without a random effect of plot_id
+model_NEE_LM<- lm(flux_value ~ landscape_position, data = df_EC_NEE )
+summary(model_NEE_LM, corr = F)
+Anova(model_NEE_LM, type = "II", test.statistic = "F", ddf = "Kenward-Roger")
+#without plot_ID as a random effect, this is sig with p = 0.015
+
+ #Testing which model is a beter fit: NEE_LMM = with random effect of plot_ID; NEE_LM = without random effect of plot_ID 
+anova(EC_NEE_LMM, model_NEE_LM)
+#Results show lower AIC and BIC for model_NEE2, with random effect of plot_ID, so we will proceed with this version 
+
+#Testing with emmeans 
+library(emmeans)
+emmeans(EC_NEE_LMM, specs = "landscape_position") # 
+emmeans(EC_NEE_LMM, pairwise ~ landscape_position) #Tukeypairwise --> not sig, p = 0.0872
+
+```
+
+
+#Residuals and normality of mixed-effects model - ECC plots NEE2
+```{r}
+#checking normality of residuals distribution 
+plot(model_NEE2) # check constant variance
+lattice::qqmath(model_NEE2) # check normality of residuals
+plot(model_NEE2 , plot_ID ~ resid(., scaled=TRUE)) # equal var within Plots
+#---------------------------------------------------------------------------------------------------
+#checking how this QQ plot compares to plots created with normally distributed residuals
+
+op <- par(mar = c(2,2,1,1), mfrow = c(5,5))
+
+# create first qq plot using model residuals
+# color it red
+qqnorm(residuals(model_NEE2), xlab = "", ylab = "", main = "", 
+       col = "red")
+qqline(residuals(model_NEE2))
+
+# now create 24 qq plots using Normal data with sigma(dataset)
+for(i in 1:24){
+  # rnorm() samples from a Normal distribution  
+  d <- rnorm(length(residuals(model_NEE2)), 
+             mean = 0, sd = sigma(model_NEE2))
+  qqnorm(d, xlab = "", ylab = "", main = "")
+  qqline(d)
+}
+
+#these look pretty good
+
+#For further testing, if needed 
+qqnorm(residuals(model_NEE2))
+hist(residuals(model_NEE2)) #shows a bit of left skew
+
+#brown forsythe test to test variance among groups, want p to be above 0.05 to show no sig diff
+install.packages("onewaytests") #for a brown forscythe test
+library(onewaytests)
+##Testing for Homogeneity of variance with Brown-Forsythe test
+
+#code syntax: #bf.test(dependent variable ~ independent variable, data = dataset) 
+bf.test(flux_value ~ landscape_position, data=df_NEE) #this is variance among groups, so diff not being stat sig is a good thing -> but p is 0.00843, so it is sig 
+
+#variance within groups test with Levene's test
+#code syntax: leveneTest(dataset$dependent variable, dataset$independent variable)
+leveneTest(df_NEE$flux_value, df_NEE$landscape_position) #p above 0.05 means there no sig variance within groups, so data is distr normally --> p = 0.57, so not sig 
+
+#If I need to log transform:
+#dataset$new_name of log dataset <- log(dataframe$dependent variable) 
+#same for square rooting transformation, just use "sqrt"
+
+
+#This not working, look into later 
+#checking ratio of largest grp var to smallest group var, should be 3 or below 
+grp_vars <- with(df_NEE, tapply(flux_type,landscape_position,var))
+max(grp_vars)/min(grp_vars)
+
+
+```
+
+####EC plots - GPP
+
+```{r}
+library(nlme)
+library(lme4)
+library(agricolae)
+library(car)
+library(emmeans)
+
+df_EC_GPP <- df_EClong %>% filter(flux_type == "GPP")
+
+ggplot(df_EC_GPP, aes (x=landscape_position, y = flux_value))+geom_boxplot()
+
+hist(df_EC_GPP$flux_value)
+#skewed right 
+
+library(nlme)
+EC_GPP_NLME <- lme(flux_value ~ landscape_position, random = ~1 | plot_ID, data = df_EC_GPP)
+summary(EC_GPP_NLME)
+anova(EC_GPP_NLME) #not sig, p = 0.1462; only works with chi-sqr
+
+
+library(lme4)
+EC_GPP_LMM <- lmer(flux_value ~ landscape_position + (1|plot_ID), data = df_EC_GPP, REML = FALSE )
+EC_GPP_LMM_null <- lmer(flux_value ~ 1 + (1|plot_ID), data = df_EC_GPP, REML = FALSE )
+#looking at if the random effect even matters, this seems to say it does not
+#maybe try weighting by factors using varIdent 
+summary(EC_GPP_LMM, corr = F)
+anova(EC_GPP_LMM,EC_GPP_LMM_null)
+Anova(EC_GPP_LMM, type = "II", test.statistic = "F", ddf = "Kenward-Roger")
+#p=0.157; not sig 
+
+
+
+#testing the model without a random effect of plot_id
+EC_GPP_LM<- lm(flux_value ~ landscape_position, data = df_EC_GPP )
+summary(EC_GPP_LM, corr = F)
+Anova(EC_GPP_LM, type = "II", test.statistic = "F", ddf = "Kenward-Roger")
+#no random effect, p = 0.0335
+
+#sig without random effects, p = 0.0335
+fit <- aov(flux_value ~ landscape_position, data = df_EC_GPP)
+summary(fit)
+
+#Testing with emmeans 
+library(emmeans)
+emmeans(EC_GPP_LMM, specs = "landscape_position") # put those means/CIs in a data frame
+emmeans(EC_GPP_LMM, pairwise ~ landscape_position) #Tukeypairwise
+#also shows contrast is not sig, p = 0.157
+
+#testing with  a t-test for flux_value by landscape_position --> is sig at p=0.01381, but this does not include a random effect
+t_test_result <- t.test(flux_value ~ landscape_position, data = df_EC_GPP)
+# View the result
+print(t_test_result)
+
+
+```
+```{r}
+# Load lmerTest package for p-values - this does LMM with an added p-value 
+library(lmerTest)
+
+# Fit the model with lmerTest to obtain p-values
+model <- lmer(flux_value ~ landscape_position + (1 | plot_ID), data = df_EC_GPP)
+summary(model) #p=0.10254
+Anova(model, type = "II", test.statistic = "F", ddf = "Kenward-Roger") #p=0.1574
+
+```
+
+#Tukey letters compact letter display  (just for practice, as there is no sig diff here)
+```{r}
+# Install multcomp if not already installed
+install.packages("multcomp")
+library(multcomp)
+library(multcompView)
+emGPP <- emmeans(EC_GPP_LMM, specs = "landscape_position")
+cld(emGPP, Letter = "abcdefghijk")
+
+#FOR TUKEY HSD 
+# create compact letter display!
+# using lme model, get est means with CIs
+emmeans(EC_GPP_LMM, specs = "landscape_position") # put those means/CIs in a data frame
+emmeans(EC_GPP_LMM, pairwise ~ landscape_position) #Tukeypairwise
+emm_EC_GPP_LMM_df <- as.data.frame(emmeans(EC_GPP_LMM, specs = "landscape_position"))
+
+
+# get the compact letter displays using multcomp package function cld() 
+library(multcomp)
+tuk_EC_GPP <- glht(EC_GPP_LMM, linfct = mcp(landscape_position = "Tukey"))
+tuk_EC_GPP_cld <- cld(tuk_EC_GPP)
+tuk_EC_GPP_cld
+
+# add letters to data frame
+emm_EC_GPP_LMM_df$letters <- tuk_EC_GPP_cld$mcletters$Letters
+
+#plot with letters from tukey groupings 
+library(ggplot2)
+ggplot(df_EC_GPP, aes(x=landscape_position, y = flux_value))+
+  geom_boxplot()+
+  theme_minimal()+
+   annotate("text", x = 1:2, y = 0.0002, label = tuk_EC_GPP_cld$mcletters$Letters)
+
+#a more strict tukey, adheres to the p<0.05
+
+library(multcomp)
+library(multcompView)
+emm <- emmeans(EC_GPP_LMM, specs = "landscape_position")
+cld(emm, Letter = "abcdefghijk")
+
+```
+#LME of GPP, NEE, RECO among all plot types 
+
+```{r}
+# mixed effect models
+library(lme4)
+library(emmeans)
+library(car)
+
+library(nlme)
+#model testing differences in landscape position among all plot types --> not sig, p = 0.3266
+EC_GPP_lme <- lme(flux_value ~ landscape_position, random = ~1 | plot_ID, data = df_GPP, na.action=na.exclude) #lets R work around the 0 values in dataset )
+summary(EC_GPP_lme, corr = F)
+Anova(EC_GPP_lme,test.statistic = "F", type = "II", ddf = "Kenward-Roger") #does type 2 but only with chi-sqr in nlme package 
+
+library(lme4)
+# GPP among all plot types  --> not sig, p = 0.3459
+model_GPP_plottype <- lmer(flux_value ~ landscape_position + (1 | plot_ID), data = df_GPP)
+summary(model_GPP_plottype)
+Anova(model_GPP_plottype,test.statistic = "F", type = "II", ddf = "Kenward-Roger")
+
+# NEE among all plot types  --> not sig, p = 0.147
+model_NEE_plottype <- lmer(flux_value ~ landscape_position + (1 | plot_ID), data = df_NEE)
+summary(model_NEE_plottype)
+Anova(model_NEE_plottype,test.statistic = "F", type = "II", ddf = "Kenward-Roger")
+
+# RECO among all plot types  --> not sig, p = 0.89
+model_RECO_plottype <- lmer(flux_value ~ landscape_position + (1 | plot_ID), data = df_RECO)
+summary(model_RECO_plottype)
+Anova(model_RECO_plottype,test.statistic = "F", type = "II", ddf = "Kenward-Roger")
+
+
+```
+#LME of GPP, NEE, RECO among plot types
+```{r}
+
+library(lme4)
+# GPP among all plot types  --> not sig, p = 0.288
+model_GPP_plottype2 <- lmer(flux_value ~ plot_type + (1 | plot_ID), data = df_GPP)
+summary(model_GPP_plottype2)
+Anova(model_GPP_plottype2,test.statistic = "F", type = "II", ddf = "Kenward-Roger")
+
+# NEE among all plot types  --> not sig, p = 0.07
+model_NEE_plottype2 <- lmer(flux_value ~ plot_type + (1 | plot_ID), data = df_NEE)
+summary(model_NEE_plottype2)
+Anova(model_NEE_plottype2,test.statistic = "F", type = "II", ddf = "Kenward-Roger")
+
+# RECO among all plot types  --> not sig, p = 0.59
+model_RECO_plottype2 <- lmer(flux_value ~ plot_type + (1 | plot_ID), data = df_RECO)
+summary(model_RECO_plottype2)
+Anova(model_RECO_plottype2,test.statistic = "F", type = "II", ddf = "Kenward-Roger")
+```
+
+
+
+```{r}
+#Residuals and normality of mixed-effects model - ECC plots GPP
+
+#checking normality of residuals distribution 
+plot(model_NEE2) # check constant variance
+lattice::qqmath(model_NEE2) # check normality of residuals
+plot(model_NEE2 , plot_ID ~ resid(., scaled=TRUE)) # equal var within Plots
+#---------------------------------------------------------------------------------------------------
+#checking how this QQ plot compares to plots created with normally distributed residuals
+#ASK CLAY - will this test work with my other datasets? just plug in diff dataset and test? 
+#How to do a glmm / glmer model in case of transformations not working 
+#how to transform / back transform (I do have negative values and 0 values in some cases)
+op <- par(mar = c(2,2,1,1), mfrow = c(5,5))
+
+# create first qq plot using model residuals
+# color it red
+qqnorm(residuals(model_NEE2), xlab = "", ylab = "", main = "", 
+       col = "red")
+qqline(residuals(model_NEE2))
+
+# now create 24 qq plots using Normal data with sigma(PB19Eri.angCN_LMM
+for(i in 1:24){
+  # rnorm() samples from a Normal dist'n 
+  d <- rnorm(length(residuals(model_NEE2)), 
+             mean = 0, sd = sigma(model_NEE2))
+  qqnorm(d, xlab = "", ylab = "", main = "")
+  qqline(d)
+}
+
+#These residuals look pretty good 
+
+#For further testing, if needed 
+qqnorm(residuals(model_NEE2))
+hist(residuals(model_NEE2)) #shows a bit of left skew
+
+#brown forsythe test to test variance among groups, want p to be above 0.05 to show no sig diff
+install.packages("onewaytests") #for a brown forscythe test
+library(onewaytests)
+##Testing for Homogeneity of variance
+## but these test for normality in data, not residuals, right? 
+# with Brown-Forsythe test
+#bf.test(dependent variable ~ independent variable, data = dataset) 
+bf.test(flux_value ~ landscape_position, data=df_NEE) #this is variance among groups, so diff not being stat sig is a good thing -> but p is 0.00843, so it is sig 
+#variance within groups test
+
+# with Levene's test
+#leveneTest(dataset$dependent variable, dataset$independent variable)
+leveneTest(df_NEE$flux_value, df_NEE$landscape_position) #p above 0.05 means there no sig variance within groups, so data is distr normally --> p = 0.57, so not sig 
+
+#If I need to log transform:
+#dataset$new_name of log dataset <- log(dataframe$dependent variable) 
+#same for square rooting transformation, just use "sqrt"
+
+
+#This not working, look into later 
+#checking ratio of largest grp var to smallest group var, needs to be 3 or below 
+grp_vars <- with(df_NEE, tapply(flux_type,landscape_position,var))
+max(grp_vars)/min(grp_vars)
+
+
+
+```
+
+#EC RECO
+```{r}
+library(nlme)
+library(lme4)
+library(car)
+
+df_RECO <- df_EClong %>% filter(flux_type == "RECO")
+
+
+model_RECO <- lme(flux_value ~ landscape_position, random = ~1 | plot_ID, data = df_RECO)
+summary(model_RECO)
+
+
+df_GPP <- df_EClong %>% filter(flux_type == "GPP")
+
+model_GPPtest <- lme(flux_value ~ landscape_position, random = ~1 | plot_ID, data = df_GPP)
+summary(model_GPPtest)
+anova(model_GPPtest)
+```
+
+
+
+
+
+
+
+
+
