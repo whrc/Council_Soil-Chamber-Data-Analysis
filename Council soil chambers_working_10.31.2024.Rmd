@@ -1,5 +1,5 @@
 ---
-title: "Council Soil Chamber Analysis" #time is in AK daylight time** NEE/RECO/GPP are in gC/m2/s; FCO2 and FCH4 are in gC/m2/s, flux_CO2 is in umol/m2/s; flux_CH4 is in nano mol/m2/s
+title: "Council Soil Chamber Analysis" #  TESTING GIT #time is in AK daylight time** NEE/RECO/GPP are in gC/m2/s; FCO2 and FCH4 are in gC/m2/s, flux_CO2 is in umol/m2/s; flux_CH4 is in nano mol/m2/s
 output: html_document
 date: "2024-10-22"
 ---
