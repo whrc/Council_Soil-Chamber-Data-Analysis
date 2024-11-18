@@ -342,7 +342,7 @@ hist(df_EC_NEE$flux_value)
 #skewed a bit to the left
 
 library(nlme)
-model_NEE <- lme(flux_value ~ landscape_position, random = ~1 | plot_ID, data = df_EC_NEE)
+model_NEE <- lme(flux_value ~ landscape_position, random = ~1 | plot_ID, data = df_EC_NEE,method = 'ML')
 summary(model_NEE)
 anova(model_NEE) #p = 0.07
 Anova(model_NEE, test.statistic = "F", type = "II", ddf = "Kenward-Roger") # p = 0.0361?! ask why this is diff 
@@ -459,8 +459,12 @@ anova(EC_GPP_NLME) #not sig, p = 0.1462; only works with chi-sqr
 
 
 library(lme4)
-EC_GPP_LMM <- lmer(flux_value ~ landscape_position + (1|plot_ID), data = df_EC_GPP )
+EC_GPP_LMM <- lmer(flux_value ~ landscape_position + (1|plot_ID), data = df_EC_GPP, REML = FALSE )
+EC_GPP_LMM_null <- lmer(flux_value ~ 1 + (1|plot_ID), data = df_EC_GPP, REML = FALSE )
+#looking at if the random effect even matters, this seems to say it does not
+#maybe try weighting by factors using varIdent 
 summary(EC_GPP_LMM, corr = F)
+anova(EC_GPP_LMM,EC_GPP_LMM_null)
 Anova(EC_GPP_LMM, type = "II", test.statistic = "F", ddf = "Kenward-Roger")
 #p=0.157; not sig 
 
