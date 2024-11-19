@@ -40,6 +40,8 @@ library(RColorBrewer)
 library(pracma)
 library(dplyr)
 library(openair)
+library(nlme)
+library(lme4)
 
 ```
 
@@ -82,8 +84,7 @@ df_long <- df_NEE_RECO2_GPP %>%
 
 ####Create new df for each plot type for analysis 
 ```{r}
-library(nlme)
-library(lme4)
+
 # library(dplyr)
 # library(tidyr)
 
@@ -154,6 +155,341 @@ df_BGClong <- df_BGClong %>% arrange(flux_type)
 
 ```
 
+
+#Variance spread in data
+
+####Spread in dataset - NEE
+
+```{r}
+library(dplyr)
+#looking at spread in the datasets
+
+# Boxplots for categorical predictors
+ggplot(df_NEE, aes(x = landscape_position, y = flux_value)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Flux Value by Landscape Position")
+#looks good, very little spread/difference here 
+
+ggplot(df_NEE, aes(x = inundated, y = flux_value)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Flux Value by Inundation")
+#also looks good, very little spread here 
+
+ggplot(df_NEE, aes(x = plot_type, y = flux_value)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Flux Value by Plot Type")
+#also looks good, very little spread 
+
+# Scatterplot for continuous predictor
+ggplot(df_NEE, aes(x = soil_temp_10_cm, y = flux_value)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Flux Value vs Soil Temperature (10 cm)")
+#also very little spread 
+
+```
+####Spread in Variance among diff variables - NEE
+
+```{r}
+# Calculate variance within groups
+
+#exclude NA
+sum(is.na(df_NEE$flux_value)) #flux val has 0 NAs; inundated has 2
+df_NEE.c1 <- df_NEE[complete.cases(df_NEE[, c("inundated")]), ]
+
+
+#Flux and landscape pos
+df_variance_landpos <- df_NEE %>%
+  group_by(landscape_position) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_landpos)
+
+# Variance plot - flux and landscape pos
+ggplot(df_variance_landpos, aes(x = landscape_position, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Landscape Position",
+       y = "Variance")
+#higher variance in upland landscape position than in slope and lowland* 
+
+#Flux and plot type
+df_variance_plottype <- df_NEE %>%
+  group_by(plot_type) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_plottype)
+
+# Variance plot - flux and plot type 
+ggplot(df_variance_plottype, aes(x = plot_type, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Plot Type",
+       y = "Variance")
+#higher variance in BGC
+
+
+#Flux and inundated 
+#dropped NAs in inundated
+df_variance_inundated <- df_NEE.c1 %>%
+  group_by(inundated) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_inundated)
+
+
+# Variance plot - flux and inundated
+ggplot(df_variance_inundated, aes(x = inundated, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Inundation",
+       y = "Variance")
+#higher variance in inundated plots 
+
+
+# Shapiro-Wilk test for normality
+shapiro_test <- shapiro.test(df_NEE$flux_value)
+print(shapiro_test) #lower than 0.05, so does deviate from normality 
+
+# Q-Q plot
+qqnorm(df_NEE$flux_value)
+qqline(df_NEE$flux_value, col = "red")
+
+#homogeneity of variance - levene's test
+# p > 0.05: Variances are homogenous (no significant difference between variances).
+# p ≤ 0.05: Variances are not homogenous.
+library(car)
+leveneTest(flux_value ~ landscape_position, data = df_NEE)
+#p=0.43, homogeneity of var is ok
+
+```
+####Spread in dataset - GPP
+
+```{r}
+library(dplyr)
+#looking at spread in the datasets
+
+# Boxplots for categorical predictors
+ggplot(df_GPP, aes(x = landscape_position, y = flux_value)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Flux Value by Landscape Position")
+#looks good, very little spread/difference here 
+
+ggplot(df_GPP, aes(x = inundated, y = flux_value)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Flux Value by Inundation")
+#also looks good, very little spread here 
+
+ggplot(df_GPP, aes(x = plot_type, y = flux_value)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Flux Value by Plot Type")
+#also looks good, very little spread 
+
+# Scatterplot for continuous predictor
+ggplot(df_GPP, aes(x = soil_temp_10_cm, y = flux_value)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Flux Value vs Soil Temperature (10 cm)")
+#also very little spread 
+
+```
+
+####Spread in Variance among diff variables - GPP
+
+```{r}
+# Calculate variance within groups
+
+#exclude NA
+sum(is.na(df_GPP$flux_value)) #flux val has 3 NAs
+sum(is.na(df_GPP$inundated)) #inundated has 2 NAs
+df_GPP.c1 <- df_GPP[complete.cases(df_GPP[, c("inundated")]), ]
+df_GPP.c2 <- df_GPP[complete.cases(df_GPP[, c("flux_type")]), ]
+
+
+#Flux and landscape pos
+df_variance_landpos <- df_GPP %>%
+  group_by(landscape_position) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_landpos)
+
+# Variance plot - flux and landscape pos
+ggplot(df_variance_landpos, aes(x = landscape_position, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Landscape Position",
+       y = "Variance")
+#higher variance in upland landscape position than in slope and lowland* 
+
+#Flux and plot type
+df_variance_plottype <- df_GPP %>%
+  group_by(plot_type) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_plottype)
+
+# Variance plot - flux and plot type 
+ggplot(df_variance_plottype, aes(x = plot_type, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Plot Type",
+       y = "Variance")
+#higher variance in BGC
+
+
+#Flux and inundated 
+df_variance_inundated <- df_GPP %>%
+  group_by(inundated) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_inundated)
+
+
+# Variance plot - flux and inundated
+ggplot(df_variance_inundated, aes(x = inundated, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Inundation",
+       y = "Variance")
+#higher variance in not inundated plots 
+
+
+# Shapiro-Wilk test for normality
+shapiro_test <- shapiro.test(df_GPP$flux_value)
+print(shapiro_test) #lower than 0.05, so does deviate from normality 
+
+# Q-Q plot
+qqnorm(df_GPP$flux_value)
+qqline(df_GPP$flux_value, col = "red")
+
+#homogeneity of variance - levene's test
+# p > 0.05: Variances are homogenous (no significant difference between variances).
+# p ≤ 0.05: Variances are not homogenous.
+library(car)
+leveneTest(flux_value ~ landscape_position, data = df_GPP)
+#p=0.68, homogeneity of var is ok
+
+```
+####Spread in dataset - RECO
+
+```{r}
+library(dplyr)
+#looking at spread in the datasets
+
+# Boxplots for categorical predictors
+ggplot(df_RECO, aes(x = landscape_position, y = flux_value)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Flux Value by Landscape Position")
+#looks good, very little spread/difference here 
+
+ggplot(df_RECO, aes(x = inundated, y = flux_value)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Flux Value by Inundation")
+#also looks good, very little spread here 
+
+ggplot(df_RECO, aes(x = plot_type, y = flux_value)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Flux Value by Plot Type")
+#also looks good, very little spread 
+
+# Scatterplot for continuous predictor
+ggplot(df_RECO, aes(x = soil_temp_10_cm, y = flux_value)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Flux Value vs Soil Temperature (10 cm)")
+#also very little spread 
+
+```
+
+####Spread in Variance among diff variables - RECO
+
+```{r}
+# Calculate variance within groups
+
+#exclude NA
+sum(is.na(df_RECO$flux_value)) #flux val has 3 NAs
+sum(is.na(df_RECO$inundated)) #inundated has 2 NAs
+df_RECO.c1 <- df_RECO[complete.cases(df_RECO[, c("inundated")]), ]
+df_RECO.c2 <- df_RECO[complete.cases(df_RECO[, c("flux_type")]), ]
+
+
+#Flux and landscape pos
+df_variance_landpos <- df_RECO %>%
+  group_by(landscape_position) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_landpos)
+
+# Variance plot - flux and landscape pos
+ggplot(df_variance_landpos, aes(x = landscape_position, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Landscape Position",
+       y = "Variance")
+#higher variance in upland landscape position than in slope and lowland* 
+
+#Flux and plot type
+df_variance_plottype <- df_RECO %>%
+  group_by(plot_type) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_plottype)
+
+# Variance plot - flux and plot type 
+ggplot(df_variance_plottype, aes(x = plot_type, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Plot Type",
+       y = "Variance")
+#all very similar 
+
+
+#Flux and inundated 
+df_variance_inundated <- df_RECO %>%
+  group_by(inundated) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_inundated)
+
+
+# Variance plot - flux and inundated
+ggplot(df_variance_inundated, aes(x = inundated, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Inundation",
+       y = "Variance")
+#higher variance in not inundated plots 
+
+
+# Shapiro-Wilk test for normality
+shapiro_test <- shapiro.test(df_RECO$flux_value)
+print(shapiro_test) #lower than 0.05, so does deviate from normality 
+
+# Q-Q plot
+qqnorm(df_RECO$flux_value)
+qqline(df_RECO$flux_value, col = "red") #bows upward at both ends
+
+#homogeneity of variance - levene's test
+# p > 0.05: Variances are homogeneous (no significant difference between variances).
+# p ≤ 0.05: Variances are not homogeneous.
+library(car)
+leveneTest(flux_value ~ landscape_position, data = df_RECO)
+#p=0.78, homogeneity of var is ok
+
+```
+
+
+
+
 #Exploratory analysis 
 
 #NEE
@@ -164,13 +500,13 @@ df_BGClong <- df_BGClong %>% arrange(flux_type)
 
 #Testing parameters in df_NEE as a whole  - using Kyle's "fluxes" code as guide 
 
-#Make plot_ID, inundated, plot_type, landscape_position, and soil temp at 10cm as factor so they'll work with gls
+#Make plot_ID, inundated, plot_type, landscape_position as factor so they'll work with gls
 
 df_NEE$plot_ID = factor(df_NEE$plot_ID)
 df_NEE$plot_type = factor (df_NEE$plot_type)
 df_NEE$landscape_position = factor(df_NEE$landscape_position)
 df_NEE$inundated = factor(df_NEE$inundated)
-df_NEE$soil_temp_10_cm = factor (df_NEE$soil_temp_10_cm)
+df_NEE$soil_temp_10_cm = as.numeric (df_NEE$soil_temp_10_cm)
 
 #Tried with both 'ML' and 'REML' - no major diffs in results 
 library(nlme)
@@ -228,8 +564,8 @@ anova(var.NEE.plottype) #now showing sig diffs for landscape pos (p=<0.0001), in
 anova(gls.NEE, var.NEE.plottype) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (lower AIC, lower BIC, and higher LogLik)
 
 #based on soil temp --> will not work for this model, "false convergence"
-var.NEE.soiltemp = update(gls.NEE, weights = varIdent(form = ~1|soil_temp_10_cm))
-anova(var.NEE.soiltemp) #"false convergence", will not work for this var structure 
+# var.NEE.soiltemp = update(gls.NEE, weights = varIdent(form = ~1|soil_temp_10_cm))
+# anova(var.NEE.soiltemp) #"false convergence", will not work for this var structure 
 
 #now testing which models are best fit 
 anova(var.NEE.inundated, var.NEE.landpos, var.NEE.plottype) #sig improvement in landpos over inundated 
@@ -321,7 +657,7 @@ for(i in 1:24){
 #For further testing, if needed 
 qqnorm(residuals(NEE.final))
 hist(residuals(NEE.final)) #shows a bit of left skew
-
+car::qqPlot(x = residuals(NEE.final))
 ```
 
 #GPP
@@ -330,13 +666,13 @@ hist(residuals(NEE.final)) #shows a bit of left skew
 ```{r}
 #Testing parameters in df_GPP as a whole  - using Kyle's "fluxes" code as guide 
 
-#Make plot_ID, inundated, plot_type, landscape_position, and soil temp at 10cm as factor so they'll work with gls
+#Make plot_ID, inundated, plot_type, landscape_position as factor so they'll work with gls
 
 df_GPP$plot_ID = factor(df_GPP$plot_ID)
 df_GPP$plot_type = factor (df_GPP$plot_type)
 df_GPP$landscape_position = factor(df_GPP$landscape_position)
 df_GPP$inundated = factor(df_GPP$inundated)
-df_GPP$soil_temp_10_cm = factor (df_GPP$soil_temp_10_cm)
+df_NEE$soil_temp_10_cm = as.numeric (df_NEE$soil_temp_10_cm)
 
 
 #need to remove NA's - check for NAs and remove 
@@ -350,6 +686,7 @@ sum(is.na(df_GPP.c3$flux_value)) #double check to make sure NAs are gone -> gone
 sum(is.infinite(df_GPP.c3$flux_value)) #and infinite values? --> no
 
 
+df_GPP$soil_temp_10_cm = as.numeric(df_GPP$soil_temp_10_cm)
 
 #Tried with both 'ML' and 'REML' - no major diffs in results 
 library(nlme)
@@ -391,7 +728,6 @@ anova(gls.GPP.soiltemp) #p=0.93, not sig
 ```{r}
 #######################################################################################################
 ##stopped here, without inundation and soil temp, can't properly test models 
-
 #select variance structure 
 #based on inundation --> won't work, error: "Error in eigen(val, only.values = TRUE) : infinite or missing values in 'x'"
 var.GPP.inundated = update(gls.GPP, weights = varIdent(form = ~1|inundated))
@@ -409,8 +745,8 @@ anova(var.GPP.plottype) #now showing sig diffs for soil (<0.0001), landscape pos
 anova(gls.GPP, var.GPP.plottype) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (lower AIC, lower BIC, and higher LogLik)
 
 #based on soil temp --> "infinite or missing values in x"
-var.GPP.soiltemp = update(gls.GPP, weights = varIdent(form = ~1|soil_temp_10_cm), na.action=na.exclude)
-anova(var.GPP.soiltemp) 
+# var.GPP.soiltemp = update(gls.GPP, weights = varIdent(form = ~1|soil_temp_10_cm), na.action=na.exclude)
+# anova(var.GPP.soiltemp) 
 
 #now testing which models are best fit 
 #anova(var.GPP.inundated, var.GPP.landpos, var.GPP.plottype) #inundation won't work 
@@ -418,6 +754,8 @@ anova(var.GPP.soiltemp)
 # anova(var.GPP.inundated,var.GPP.plottype) 
 anova(var.GPP.landpos, var.GPP.plottype) #no sig diff but plottype lower AIC/BIC, higher logLik
 
+ggplot(df_GPP)+
+  geom_point(aes(soil_temp_10_cm,flux_value))
 ```
 
 #### Multiple Var structure - GPP
@@ -481,13 +819,13 @@ anova(GPP.final) #plot type marginal (p=0.056), landscap pos and soil temp are s
 ```{r}
 #Testing parameters in df_RECO as a whole  - using Kyle's "fluxes" code as guide 
 
-#Make plot_ID, inundated, plot_type, landscape_position, and soil temp at 10cm as factor so they'll work with gls
+#Make plot_ID, inundated, plot_type, landscape_position factor so they'll work with gls
 
 df_RECO$plot_ID = factor(df_RECO$plot_ID)
 df_RECO$plot_type = factor (df_RECO$plot_type)
 df_RECO$landscape_position = factor(df_RECO$landscape_position)
 df_RECO$inundated = factor(df_RECO$inundated)
-df_RECO$soil_temp_10_cm = factor (df_RECO$soil_temp_10_cm)
+df_NEE$soil_temp_10_cm = as.numeric (df_NEE$soil_temp_10_cm)
 
 #Tried with both 'ML' and 'REML' - no major diffs in results 
 
