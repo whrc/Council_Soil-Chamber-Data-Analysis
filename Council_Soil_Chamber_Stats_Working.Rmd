@@ -86,8 +86,6 @@ df_long <- df_NEE_RECO2_GPP %>%
 ```{r}
 
 # library(dplyr)
-# library(tidyr)
-
 
 # Step 1: Filter the dataframe for plot_ID = "EC" "MW" and "BGC", and by flux type to create df for diff analysis options
 
@@ -506,7 +504,7 @@ df_NEE$plot_ID = factor(df_NEE$plot_ID)
 df_NEE$plot_type = factor (df_NEE$plot_type)
 df_NEE$landscape_position = factor(df_NEE$landscape_position)
 df_NEE$inundated = factor(df_NEE$inundated)
-df_NEE$soil_temp_10_cm = as.numeric (df_NEE$soil_temp_10_cm)
+#df_NEE$soil_temp_10_cm = as.numeric (df_NEE$soil_temp_10_cm) #use this in case it reads it in as factor or character
 
 #Tried with both 'ML' and 'REML' - no major diffs in results 
 library(nlme)
@@ -540,7 +538,7 @@ gls.NEE.inundated = gls(flux_value ~ inundated, data = df_NEE, method = 'ML', na
 anova(gls.NEE.inundated) #p=0.32, not sig 
 
 gls.NEE.soiltemp = gls(flux_value ~ soil_temp_10_cm, data = df_NEE, method = 'ML', na.action=na.exclude)
-anova(gls.NEE.soiltemp) #p=0.98, not sig 
+anova(gls.NEE.soiltemp) #p=0.28, not sig 
 
 ```
 
@@ -550,20 +548,20 @@ anova(gls.NEE.soiltemp) #p=0.98, not sig
 
 #based on inundation
 var.NEE.inundated = update(gls.NEE, weights = varIdent(form = ~1|inundated))
-anova(var.NEE.inundated) #now showing sig diffs in plot_type (p=0.013), landscape (<0.0001), and soil temp (<0.0001)
-anova(gls.NEE, var.NEE.inundated) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (lower AIC, lower BIC, and higher L.Ratio)
+anova(var.NEE.inundated) #no diffs among variables 
+anova(gls.NEE, var.NEE.inundated) #p = <0.04, adding in the variance by inundation improves the model fit (but only slightly lower AIC, lower BIC, and higher L.Ratio)
 
 #based on landscape position
 var.NEE.landpos = update(gls.NEE, weights = varIdent(form = ~1|landscape_position))
-anova(var.NEE.landpos) #now showing sig diffs for soil temp (<0.0001)
-anova(gls.NEE, var.NEE.landpos) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (lower AIC, lower BIC, and higher LogLik)
+anova(var.NEE.landpos) #no diffs among variables 
+anova(gls.NEE, var.NEE.landpos) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (but only slightly lower AIC, lower BIC, and higher LogLik)
 
 #based on plot type 
 var.NEE.plottype = update(gls.NEE, weights = varIdent(form = ~1|plot_type))
-anova(var.NEE.plottype) #now showing sig diffs for landscape pos (p=<0.0001), inundated (p=0.005), soil temp (<0.0001)
+anova(var.NEE.plottype) #now showing sig diffs for landscape pos (p=<0.04), plot type (p=0.03), marginally soil temp (<0.053)
 anova(gls.NEE, var.NEE.plottype) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (lower AIC, lower BIC, and higher LogLik)
 
-#based on soil temp --> will not work for this model, "false convergence"
+#based on soil temp --> will not work for this model, "false convergence" --> leaving out, not categorical 
 # var.NEE.soiltemp = update(gls.NEE, weights = varIdent(form = ~1|soil_temp_10_cm))
 # anova(var.NEE.soiltemp) #"false convergence", will not work for this var structure 
 
@@ -580,34 +578,30 @@ anova(var.NEE.landpos, var.NEE.plottype) #no sig diff but plottype lower AIC/BIC
 #inundation and land pos 
 library(nlme)
 var.NEE.landpos.inun = update(gls.NEE, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | landscape_position)))
-
-anova(var.NEE.landpos.inun) #shows sig diff in soil temp (p<0.0001)
+anova(var.NEE.landpos.inun) #no sig diff among variables 
 
 #inundation and plot type 
 var.NEE.plottype.inun = update(gls.NEE, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | plot_type)))
-
-anova(var.NEE.plottype.inun) #shows sig diff in all variables 
+anova(var.NEE.plottype.inun) #shows sig diff in landpos (p=0.004), soil temp (p=0.04), and marginally plot type (0.05)
 
 
 #land pos and plot type 
 var.NEE.landpos.plottype = update(gls.NEE, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)))
-
-anova(var.NEE.landpos.plottype) #all variables sig 
+anova(var.NEE.landpos.plottype) #all variables sig except inundated 
 
 
 anova(var.NEE.landpos.inun,var.NEE.plottype.inun) #no sig diff here, but AIC/BIC lower & logLik higher in plottype.inun
 
-anova(var.NEE.landpos.inun, var.NEE.landpos.plottype, var.NEE.plottype.inun) #landpos.plottype is better than landpos.inun, and plottype.inun is better than landpos.plottype --> appears plottype and inun is best model of these three 
+anova(var.NEE.landpos.inun, var.NEE.landpos.plottype, var.NEE.plottype.inun) #appears landpos-plottype is best model of these three 
 
 
 #land pos and plot type and inun
 var.NEE.all = update(gls.NEE, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type), varIdent(form = ~1 |inundated)))
-
-anova(var.NEE.all) #all variables sig 
+anova(var.NEE.all) #all variables sig except inundated 
 
 #testing all multiple var models 
 anova(var.NEE.plottype.inun, var.NEE.all) #NEE.all is better fit, sig 
-anova(var.NEE.landpos.inun, var.NEE.landpos.plottype, var.NEE.plottype.inun, var.NEE.all) #sig diff, but NEE.plottype.inun has lower AIC/BIC, higher logLik --> seems to fit best
+anova(var.NEE.landpos.inun, var.NEE.landpos.plottype, var.NEE.plottype.inun, var.NEE.all) #sig diff, NEE.plottype.inun has slightly lower AIC/BIC, higher logLik --> seems to fit best, though NEE.all very close to being the same as NEE.plottype.inun
 
 #testing multiple var models with single var models 
 anova(gls.NEE, var.NEE.plottype.inun, var.NEE.inundated, var.NEE.landpos, var.NEE.plottype)
@@ -615,12 +609,12 @@ anova(gls.NEE, var.NEE.plottype.inun, var.NEE.inundated, var.NEE.landpos, var.NE
 
 
 #looking at fixed effects with selected model of var.NEE.plottype.inun 
-anova(var.NEE.plottype.inun, type = "marginal") #plot type (p=0.046), and soil temp (p<0.0001) are sig, inundated is marginal (p=0.055)
+anova(var.NEE.plottype.inun, type = "marginal") # soil temp (p<0.04) is sig
 
 
 #refit with REML
 NEE.final = update(var.NEE.plottype.inun, method = "REML")
-anova(NEE.final) #plot type marginal (p=0.056), landscap pos and soil temp are sig 
+anova(NEE.final) #plottype marginal (p=0.049), landscape pos (p=0.006) and soil temp (p=0.046) are sig 
 
 
 ```
@@ -654,10 +648,10 @@ for(i in 1:24){
 
 #doesn't look awful, doesn't look great....have Kyle take a look 
 
-#For further testing, if needed 
+#comparing data QQplot to a normal QQplot and hist 
 qqnorm(residuals(NEE.final))
 hist(residuals(NEE.final)) #shows a bit of left skew
-car::qqPlot(x = residuals(NEE.final))
+car::qqPlot(x = residuals(NEE.final)) #shows where residuals breach normal distr
 ```
 
 #GPP
@@ -672,7 +666,7 @@ df_GPP$plot_ID = factor(df_GPP$plot_ID)
 df_GPP$plot_type = factor (df_GPP$plot_type)
 df_GPP$landscape_position = factor(df_GPP$landscape_position)
 df_GPP$inundated = factor(df_GPP$inundated)
-df_NEE$soil_temp_10_cm = as.numeric (df_NEE$soil_temp_10_cm)
+#df_NEE$soil_temp_10_cm = as.numeric (df_NEE$soil_temp_10_cm)
 
 
 #need to remove NA's - check for NAs and remove 
@@ -686,20 +680,19 @@ sum(is.na(df_GPP.c3$flux_value)) #double check to make sure NAs are gone -> gone
 sum(is.infinite(df_GPP.c3$flux_value)) #and infinite values? --> no
 
 
-df_GPP$soil_temp_10_cm = as.numeric(df_GPP$soil_temp_10_cm)
 
 #Tried with both 'ML' and 'REML' - no major diffs in results 
 library(nlme)
 #gls - no random effect
 gls.GPP = gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, data = df_GPP, method = 'ML', na.action=na.exclude)
-anova(gls.GPP) #this shows no sig diff in flux type among these 
+anova(gls.GPP) #only soil temp is sig 
 
 #lme - with random effect of plot_ID
 lme.GPP <- lme(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, 
                random = ~1 | plot_ID, 
                data = df_GPP, na.action=na.exclude , 
                method = 'ML')
-anova(lme.GPP) #shows no sig diff in flux types among these 
+anova(lme.GPP) #only soil temp is sig 
 
 #Comparing the models 
 anova(gls.GPP, lme.GPP) #shows no diff in model with or without random effect - so random effect not needed here 
@@ -720,93 +713,93 @@ gls.GPP.inundated = gls(flux_value ~ inundated, data = df_GPP, method = 'ML', na
 anova(gls.GPP.inundated) #p=0.65, not sig 
 
 gls.GPP.soiltemp = gls(flux_value ~ soil_temp_10_cm, data = df_GPP, method = 'ML', na.action=na.exclude)
-anova(gls.GPP.soiltemp) #p=0.93, not sig 
+anova(gls.GPP.soiltemp) #p=0.053, not sig/borderline 
 
 ```
 
 #****Variance Structure -GPP- inundation and soil temp not working 
 ```{r}
-#######################################################################################################
-##stopped here, without inundation and soil temp, can't properly test models 
+
 #select variance structure 
-#based on inundation --> won't work, error: "Error in eigen(val, only.values = TRUE) : infinite or missing values in 'x'"
+
 var.GPP.inundated = update(gls.GPP, weights = varIdent(form = ~1|inundated))
-anova(var.GPP.inundated) 
-anova(gls.GPP, var.GPP.inundated) 
+anova(var.GPP.inundated) #soil temp sig, p = 0.03
+
+anova(gls.GPP, var.GPP.inundated) #p=0.03, GPP.inundated slightly better 
 
 #based on landscape position
 var.GPP.landpos = update(gls.GPP, weights = varIdent(form = ~1|landscape_position))
-anova(var.GPP.landpos) #now showing sig diffs for soil temp (<0.03)
-anova(gls.GPP, var.GPP.landpos) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (lower AIC, lower BIC, and higher LogLik)
+anova(var.GPP.landpos) #sig diffs for soil temp (<0.02)
+
+anova(gls.GPP, var.GPP.landpos) #p = 0.002, GPP.landpos model slightly better 
 
 #based on plot type 
 var.GPP.plottype = update(gls.GPP, weights = varIdent(form = ~1|plot_type))
-anova(var.GPP.plottype) #now showing sig diffs for soil (<0.0001), landscape pos (0.0001), and plot (0.0019)
-anova(gls.GPP, var.GPP.plottype) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (lower AIC, lower BIC, and higher LogLik)
+anova(var.GPP.plottype) #no sig diffs 
+anova(gls.GPP, var.GPP.plottype) #p = 0.001, GPP.plottype slightly better 
 
-#based on soil temp --> "infinite or missing values in x"
-# var.GPP.soiltemp = update(gls.GPP, weights = varIdent(form = ~1|soil_temp_10_cm), na.action=na.exclude)
-# anova(var.GPP.soiltemp) 
 
-#now testing which models are best fit 
-#anova(var.GPP.inundated, var.GPP.landpos, var.GPP.plottype) #inundation won't work 
-# anova(var.GPP.inundated, var.GPP.landpos) 
-# anova(var.GPP.inundated,var.GPP.plottype) 
-anova(var.GPP.landpos, var.GPP.plottype) #no sig diff but plottype lower AIC/BIC, higher logLik
-
+#leaving out soil temp since it is not categorical 
 ggplot(df_GPP)+
   geom_point(aes(soil_temp_10_cm,flux_value))
+
+
+#now testing which models are best fit 
+anova(var.GPP.inundated, var.GPP.landpos, var.GPP.plottype) #GPP.landpos slightly better 
+anova(var.GPP.inundated, var.GPP.landpos)#lanpos slightly better p = 0.006
+anova(var.GPP.inundated,var.GPP.plottype) #plottype slightly better, p = 0.03
+anova(var.GPP.landpos, var.GPP.plottype) #no sig diff 
+
+
 ```
 
 #### Multiple Var structure - GPP
 
 ```{r}
 #looking at models with multiple variance structures 
+
 #inundation and land pos 
 library(nlme)
 var.GPP.landpos.inun = update(gls.GPP, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | landscape_position)))
-
-anova(var.GPP.landpos.inun) #shows sig diff in soil temp (p<0.0001)
+anova(var.GPP.landpos.inun) #shows sig diff in soil temp (p=0.017)
 
 #inundation and plot type 
 var.GPP.plottype.inun = update(gls.GPP, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | plot_type)))
-
-anova(var.GPP.plottype.inun) #shows sig diff in all variables 
+anova(var.GPP.plottype.inun) #no sig diffs 
 
 
 
 #land pos and plot type 
 var.GPP.landpos.plottype = update(gls.GPP, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)))
+anova(var.GPP.landpos.plottype) #no sig diffs
 
-anova(var.GPP.landpos.plottype) #all variables sig 
 
+anova(var.GPP.landpos.inun,var.GPP.plottype.inun) #no sig diff 
 
-anova(var.GPP.landpos.inun,var.GPP.plottype.inun) #no sig diff here, but AIC/BIC lower & logLik higher in plottype.inun
-
-anova(var.GPP.landpos.inun, var.GPP.landpos.plottype, var.GPP.plottype.inun) #landpos.plottype is better than landpos.inun, and plottype.inun is better than landpos.plottype --> appears plottype and inun is best model of these three 
+anova(var.GPP.landpos.inun, var.GPP.landpos.plottype, var.GPP.plottype.inun) #appears landpos-plottype is best model of these three 
 
 
 #land pos and plot type and inun
 var.GPP.all = update(gls.GPP, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type), varIdent(form = ~1 |inundated)))
-
-anova(var.GPP.all) #all variables sig 
+anova(var.GPP.all) #no variables sig, soil temp borderline p=0.05
 
 #testing all multiple var models 
-anova(var.GPP.plottype.inun, var.GPP.all) #GPP.all is better fit, sig 
-anova(var.GPP.landpos.inun, var.GPP.landpos.plottype, var.GPP.plottype.inun, var.GPP.all) #sig diff, but GPP.plottype.inun has lower AIC/BIC, higher logLik --> seems to fit best
+anova(var.GPP.plottype.inun, var.GPP.all) #GPP.all is slightly better fit, p=0.001
+
+anova(var.GPP.landpos.inun, var.GPP.landpos.plottype, var.GPP.plottype.inun, var.GPP.all) #sig diff, but landpost-plottype and GPP.all are nearly the same, landpos-plottype slightly better 
 
 #testing multiple var models with single var models 
-anova(gls.GPP, var.GPP.plottype.inun, var.GPP.inundated, var.GPP.landpos, var.GPP.plottype)
-#GPP.plottype.inun has lowest AIC/BIC, highest logLik so it appears to be better model 
+anova(gls.GPP, var.GPP.landpos.plottype, var.GPP.plottype.inun, var.GPP.landpos.inun, var.GPP.inundated, var.GPP.landpos, var.GPP.plottype)
+#sig diffs but all very close, GPP.landpos-plottype appears best  
 
 
 #looking at fixed effects with selected model of var.GPP.plottype.inun 
-anova(var.GPP.plottype.inun, type = "marginal") #plot type (p=0.046), and soil temp (p<0.0001) are sig, inundated is marginal (p=0.055)
+anova(var.GPP.landpos.plottype, type = "marginal") #soil temp is marginal (p=0.05), no others sig 
 
 
 #refit with REML
-GPP.final = update(var.GPP.plottype.inun, method = "REML")
-anova(GPP.final) #plot type marginal (p=0.056), landscap pos and soil temp are sig 
+GPP.final = update(var.GPP.landpos.plottype, method = "REML")
+anova(GPP.final) #only soil temp is margincally sig p = 0.05
 
 
 
@@ -815,7 +808,7 @@ anova(GPP.final) #plot type marginal (p=0.056), landscap pos and soil temp are s
 
 #RECO
 
-#df_RECO: Testing df_RECO models 
+#df_RECO: Testing df_RECO models
 ```{r}
 #Testing parameters in df_RECO as a whole  - using Kyle's "fluxes" code as guide 
 
@@ -825,23 +818,33 @@ df_RECO$plot_ID = factor(df_RECO$plot_ID)
 df_RECO$plot_type = factor (df_RECO$plot_type)
 df_RECO$landscape_position = factor(df_RECO$landscape_position)
 df_RECO$inundated = factor(df_RECO$inundated)
-df_NEE$soil_temp_10_cm = as.numeric (df_NEE$soil_temp_10_cm)
+#df_NEE$soil_temp_10_cm = as.numeric (df_NEE$soil_temp_10_cm)
 
 #Tried with both 'ML' and 'REML' - no major diffs in results 
 
 #gls - no random effect
 gls.RECO = gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, data = df_RECO, method = 'ML', na.action=na.exclude)
-anova(gls.RECO) #sig diff in soil temp p=0.0023
+anova(gls.RECO) #sig diff in soil temp p<0.001
 
 #lme - with random effect of plot_ID
 lme.RECO <- lme(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, 
                random = ~1 | plot_ID, 
                data = df_RECO, na.action=na.exclude , 
                method = 'ML')
-anova(lme.RECO) #sig diff in soil temp, p =0.011
+anova(lme.RECO) #sig diff in soil temp, p <0.001
 
 #Comparing the models 
-anova(gls.RECO, lme.RECO) #shows no diff in model with or without random effect - so random effect not needed here 
+anova(gls.RECO, lme.RECO) #does show a sig diff, that lme.RECO is slightly better fit (p=0.02 but nearly identical AIC/BIC?logLik)
+
+#comparing data QQplot to a normal QQplot and hist 
+qqnorm(residuals(lme.RECO))
+hist(residuals(lme.RECO)) #shows a bit of left skew
+car::qqPlot(x = residuals(lme.RECO)) #shows where residuals breach normal distr
+
+#comparing data QQplot to a normal QQplot and hist 
+qqnorm(residuals(gls.RECO))
+hist(residuals(gls.RECO)) #shows a bit of left skew
+car::qqPlot(x = residuals(gls.RECO)) #shows where residuals breach normal distr
 
 ```
 ####Checking each variable on its own 
