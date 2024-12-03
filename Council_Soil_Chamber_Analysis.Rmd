@@ -1,0 +1,544 @@
+---
+title: "Council_Soil_Chamber-Analysis"
+output: html_document
+date: "2024-12-03"
+#Breaking up the figures and data analysis codes 
+#time is in AK daylight time** NEE/RECO/GPP are in gC/m2/s; FCO2 and FCH4 are in gC/m2/s, flux_CO2 is in umol/m2/s; flux_CH4 is in nano mol/m2/s
+output: html_document
+date: "2024-11-18"
+---
+#see "stats_working" Rmd file for exploration of data variance, qq plots, gls/lme model testing, etc 
+
+#Note that for comparison purposes, both instruments 
+were used to measure chamber fluxes on July 18, 2018 --> remove potential measurement duplicates from this date?
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load libraries 
+```{r, include=FALSE}
+rm(list= ls())
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(openair)
+library(plotrix)
+library(signal)
+library(svMisc)
+library(zoo)
+library(stringr)
+library(plyr)
+library(viridis)
+library(lubridate)
+library(tidyverse)
+library(gridExtra)
+library(plotly)
+library(RColorBrewer)
+library(pracma)
+library(dplyr)
+library(openair)
+library(nlme)
+library(lme4)
+```
+
+
+#Load filtered and merged df of soil chamber fluxes, moisture, temp (I upload multiples but only using df_NEE_RECO2 and df_NEE_RECO2_GPP for analysis below)
+```{r}
+
+#used transparent and opaque chambers to identify NEE and RECO, then merged back together 
+df_NEE_RECO2 = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+#calculated GPP (NEE - Reco)
+df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_NEE_RECO2_GPP_2017to2019.csv')
+
+
+```
+
+
+#Re-shape df 
+```{r}
+library(tidyr)
+
+#Remove the NAs from inundation 
+library(dplyr)
+df_NEE_RECO2_GPP<- df_NEE_RECO2_GPP %>%
+   filter(!is.na(inundated))
+
+
+# Reshape the dataframe to long format
+df_long <- df_NEE_RECO2_GPP %>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>%
+  pivot_longer(cols = c(NEE, RECO, GPP), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+
+```
+
+
+#Filter df by landscape position and flux type (GPP, NEE, RECO)
+
+####Create new df for each plot type for analysis 
+```{r}
+# library(dplyr)
+
+#Filter the dataframe for plot_ID = "EC" "MW" and "BGC", and by flux type to create df for diff analysis options
+
+#EC - eddy covar tower plot types 
+df_EC <- df_NEE_RECO2_GPP %>%
+  filter(plot_type == "EC")
+
+
+#MW - moisture warming plot types 
+df_MW <- df_NEE_RECO2_GPP %>%
+  filter(plot_type == "MW")
+
+#BGC - biogeochem plot types 
+df_BGC <- df_NEE_RECO2_GPP %>%
+  filter(plot_type == "BGC")
+
+#GPP
+df_GPP <-df_long %>%
+  filter(flux_type == "GPP")
+
+#NEE
+df_NEE <-df_long %>%
+  filter(flux_type == "NEE")
+#RECO
+df_RECO <-df_long %>%
+  filter(flux_type == "RECO")
+
+
+#Reshape the dataframe to long format and choose variables of interest 
+
+#EC
+df_EClong <- df_EC %>%
+  #select(plot_ID, plot_type, landscape_position, measurement_date, NEE, RECO, GPP) %>% *choosing variables of interest 
+  select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>% #choosing all variables or just subset from the d_long data 
+  pivot_longer(cols = c(NEE, RECO, GPP), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+#MW
+df_MWlong <- df_MW %>%
+  #select(plot_ID, plot_type, landscape_position, measurement_date, NEE, RECO, GPP) %>%
+   select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>% #choosing all variables or just subset from the d_long data 
+  pivot_longer(cols = c(NEE, RECO, GPP), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+#BGC
+df_BGClong <- df_BGC %>%
+  #select(plot_ID, plot_type, landscape_position, measurement_date, NEE, RECO, GPP) %>%
+   select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>% #choosing all variables or just subset from the d_long data 
+  pivot_longer(cols = c(NEE, RECO, GPP), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+
+#Re-arrange by flux type (NEE, GPP, RECO) so you can analyze more easily 
+
+# Sort the dataframe by the flux_type column 
+df_EClong <- df_EClong %>% arrange(flux_type)
+df_MWlong <- df_MWlong %>% arrange(flux_type)
+df_BGClong <- df_BGClong %>% arrange(flux_type)
+
+```
+
+
+#Note: tested models with and without random effect and there was no sig diff in GPP or NEE, though a slight improvement in RECO (p=0.02,but AIC/BIC nearly the same, so sticking with no random effect for consistency)
+
+#NEE stats 
+```{r}
+#NEE stats overall 
+
+#Tried with both 'ML' and 'REML' - no major diffs in results 
+library(nlme)
+#gls - no random effect
+gls.NEE = gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, data = df_NEE, method = 'ML', na.action=na.exclude)
+anova(gls.NEE)
+#this shows no sig diff in flux type among these 
+
+
+
+#NEE stats within plot type 
+
+#EC
+gls.EC.NEE = gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm, 
+                 data = df_EClong %>% filter(flux_type == "NEE"),
+                 method = 'REML', na.action=na.exclude)
+anova(gls.EC.NEE) #landscape position is sig, p = 0.01
+
+library(emmeans)
+gls.EC.NEE2 = gls(flux_value ~ landscape_position, 
+                 data = df_EClong %>% filter(flux_type == "NEE"),
+                 method = 'REML', na.action=na.exclude)
+anova(gls.EC.NEE2)
+
+emmeans(gls.EC.NEE2, adjust = "Tukey", pairwise ~ landscape_position) #p=0.015, sig ** 
+
+#MW 
+gls.MW.NEE = gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm, 
+                 data = df_MWlong %>% filter(flux_type == "NEE"),
+                 method = 'REML', na.action=na.exclude)
+anova(gls.MW.NEE) #is singular so running each variable individually below 
+
+gls.MW.NEE2 = gls(flux_value ~ soil_temp_10_cm, 
+                 data = df_MWlong %>% filter(flux_type == "NEE"),
+                 method = 'ML', na.action=na.exclude)
+anova(gls.MW.NEE2) 
+#landscape position p=0.4, no sig diff 
+#inundated p=0.4, no sig diff 
+#soil temp sig, p = 0.02 *** 
+
+
+#BGC
+gls.BGC.NEE = gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm, 
+                 data = df_BGClong %>% filter(flux_type == "NEE"),
+                 method = 'ML', na.action=na.exclude)
+anova(gls.BGC.NEE) #no significant differences 
+
+
+
+#NEE stats by landscape position 
+gls.landpos.NEE = gls(flux_value ~ landscape_position, 
+                 data = df_NEE ,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.landpos.NEE) #p=0.1, not sig 
+
+
+#NEE stats by inundated 
+gls.inun.NEE = gls(flux_value ~ inundated, 
+                 data = df_NEE ,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.inun.NEE) #p=0.3, not sig 
+
+#NEE stats by soil temp at 10cm
+gls.temp.NEE = gls(flux_value ~ soil_temp_10_cm, 
+                 data = df_NEE ,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.temp.NEE) #p=0.28, not sig 
+
+
+#NEE stats by soil plot type 
+gls.plot.NEE = gls(flux_value ~ plot_type, 
+                 data = df_NEE ,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.plot.NEE) 
+```
+#GPP stats 
+```{r}
+#GPP stats overall 
+
+#Tried with both 'ML' and 'REML' - no major diffs in results 
+library(nlme)
+#gls - no random effect
+gls.GPP = gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, data = df_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.GPP)
+#sig diff in soil temp, p - 0.04 
+
+
+
+#GPP stats within plot type 
+
+#EC
+gls.EC.GPP = gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm, 
+                 data = df_EClong %>% filter(flux_type == "GPP"),
+                 method = 'REML', na.action=na.exclude)
+anova(gls.EC.GPP) #landscape position is sig, p = 0.03
+
+
+library(emmeans)
+gls.EC.GPP2 = gls(flux_value ~ landscape_position, 
+                 data = df_EClong %>% filter(flux_type == "GPP"),
+                 method = 'REML', na.action=na.exclude)
+anova(gls.EC.GPP2)
+emmeans(gls.EC.GPP2, adjust = "Tukey", pairwise ~ landscape_position) #p=0.033, sig 
+
+#MW 
+gls.MW.GPP = gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm, 
+                 data = df_MWlong %>% filter(flux_type == "GPP"),
+                 method = 'REML', na.action=na.exclude)
+anova(gls.MW.GPP) #is singular so running each variable individually below 
+
+gls.MW.GPP2 = gls(flux_value ~ landscape_position, 
+                 data = df_MWlong %>% filter(flux_type == "GPP"),
+                 method = 'REML', na.action=na.exclude)
+anova(gls.MW.GPP2) 
+#landscape position p=0.8, no sig diff 
+#inundated p=0.7, no sig diff 
+#soil temp sig, p = 0.9, no sig diff
+
+
+#BGC
+gls.BGC.GPP = gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm, 
+                 data = df_BGClong %>% filter(flux_type == "GPP"),
+                 method = 'REML', na.action=na.exclude)
+anova(gls.BGC.GPP) #soil temp p = 0.03
+
+
+
+#GPP stats by landscape position 
+gls.landpos.GPP = gls(flux_value ~ landscape_position, 
+                 data = df_GPP ,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.landpos.GPP) #p=0.27, not sig 
+
+
+#GPP stats by inundated 
+gls.inun.GPP = gls(flux_value ~ inundated, 
+                 data = df_GPP ,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.inun.GPP) #p=0.65, not sig 
+
+#GPP stats by soil temp at 10cm
+gls.temp.GPP = gls(flux_value ~ soil_temp_10_cm, 
+                 data = df_GPP ,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.temp.GPP) #p=0.0529 -> not sig, borderline 
+
+#NEE stats by plot type 
+gls.plot.GPP = gls(flux_value ~ plot_type, 
+                 data = df_GPP ,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.plot.GPP) #p=0.26, not sig 
+
+```
+#RECO stats 
+```{r}
+#RECO stats overall 
+
+#Tried with both 'ML' and 'REML' - no major diffs in results 
+library(nlme)
+#gls - no random effect
+gls.RECO = gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, data = df_RECO, method = 'ML', na.action=na.exclude)
+anova(gls.RECO)
+#sig diff in soil temp, p - 0.04 
+
+
+
+#RECO stats within plot type 
+
+#EC
+gls.EC.RECO = gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm, 
+                 data = df_EClong %>% filter(flux_type == "RECO"),
+                 method = 'REML', na.action=na.exclude)
+anova(gls.EC.RECO) #soil temp p=0.04
+
+
+#MW 
+gls.MW.RECO = gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm, 
+                 data = df_MWlong %>% filter(flux_type == "RECO"),
+                 method = 'REML', na.action=na.exclude)
+anova(gls.MW.RECO) #is singular so running each variable individually below 
+
+gls.MW.RECO2 = gls(flux_value ~ inundated, 
+                 data = df_MWlong %>% filter(flux_type == "RECO"),
+                 method = 'REML', na.action=na.exclude)
+anova(gls.MW.RECO2) 
+#landscape position p=0.4, no sig diff 
+#inundated p=0.4, no sig diff 
+#soil temp sig, p = 0.4, no sig diff
+
+
+#BGC
+gls.BGC.RECO = gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm, 
+                 data = df_BGClong %>% filter(flux_type == "RECO"),
+                 method = 'REML', na.action=na.exclude)
+anova(gls.BGC.RECO) #soil temp p <0.001, sig * 
+
+
+
+#RECO stats by landscape position 
+gls.landpos.RECO = gls(flux_value ~ landscape_position, 
+                 data = df_RECO ,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.landpos.RECO) #p=0.8, not sig 
+
+
+#RECO stats by inundated 
+gls.inun.RECO = gls(flux_value ~ inundated, 
+                 data = df_RECO ,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.inun.RECO) #p=0.5, not sig 
+
+#RECO stats by soil temp at 10cm
+gls.temp.RECO = gls(flux_value ~ soil_temp_10_cm, 
+                 data = df_RECO ,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.temp.RECO) #p<0.001, sig * 
+
+#NEE stats by plot type 
+gls.plot.RECO = gls(flux_value ~ plot_type, 
+                 data = df_RECO ,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.plot.RECO) #p=0.5, not sig 
+
+```
+#FCH4 stats 
+```{r}
+#FCH4 stats overall 
+
+#Tried with both 'ML' and 'REML' - no major diffs in results 
+library(nlme)
+#gls - no random effect
+gls.FCH4 = gls(FCH4 ~ plot_type + landscape_position + inundated + soil_temp_10_cm, data = df_NEE_RECO2_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.FCH4)
+#sig diff in soil temp, p=0.02, and in inundated (p<0.001) **
+
+
+
+#FCH4 stats within plot type 
+
+#EC
+gls.EC.FCH4 = gls(FCH4 ~ landscape_position + inundated + soil_temp_10_cm, 
+                 data = df_EClong,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.EC.FCH4) #land pos p <0.001, inundated p = 0.002 - sig ** 
+
+gls.EC.FCH42 = gls(FCH4 ~ landscape_position, 
+                 data = df_EClong,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.EC.FCH42) 
+emmeans(gls.EC.FCH42, adjust = "Tukey", pairwise ~ landscape_position) #p=0.033, sig 
+
+
+#MW 
+gls.MW.FCH4 = gls(FCH4 ~ landscape_position + inundated + soil_temp_10_cm, 
+                 data = df_MWlong,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.MW.FCH4) #is singular so running each variable individually below 
+
+gls.MW.FCH42 = gls(FCH4 ~ soil_temp_10_cm, 
+                 data = df_MWlong,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.MW.FCH42) 
+#landscape position p<0.001, SIG *
+#inundated p<0.001, SIG *
+#soil temp sig, p = 0.002, SIG *
+
+
+#BGC
+gls.BGC.FCH4 = gls(FCH4 ~ landscape_position + inundated + soil_temp_10_cm, 
+                 data = df_BGClong,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.BGC.FCH4) #land pos p = 0.01, inun and soil temp p <0.001, SIG *
+
+
+gls.BGC.FCH42 = gls(FCH4 ~ landscape_position, 
+                 data = df_BGClong,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.BGC.FCH42) #now landpos p = 0.06, so does not make the cutoff ; inundated p <0.001
+emmeans(gls.BGC.FCH42, adjust = "Tukey", pairwise ~ landscape_position) #lowland vs slope p = 0.05, borderline, other postions not sig
+
+
+
+#FCH4 stats by landscape position 
+gls.landpos.FCH4 = gls(FCH4 ~ landscape_position, 
+                 data = df_NEE_RECO2_GPP,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.landpos.FCH4) #p=0.16, not sig 
+
+
+#FCH4 stats by inundated 
+gls.inun.FCH4 = gls(FCH4 ~ inundated, 
+                 data = df_NEE_RECO2,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.inun.FCH4) #p=0.5, not sig 
+
+#FCH4 stats by soil temp at 10cm
+gls.temp.FCH4 = gls(FCH4 ~ soil_temp_10_cm, 
+                 data = df_NEE_RECO2,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.temp.FCH4) #p<0.001, sig * 
+
+#NEE stats by plot type 
+gls.plot.FCH4 = gls(FCH4 ~ plot_type, 
+                data = df_NEE_RECO2,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.plot.FCH4) #p=0.5, not sig 
+emmeans(gls.plot.FCH4, adjust = "Tukey", pairwise ~ plot_type)
+
+```
+
+#Soil temp stats - diffs in soil temp between landscape pos, inund, and plot type 
+```{r}
+#soil_temp_10_cm stats overall 
+
+#Tried with both 'ML' and 'REML' - no major diffs in results 
+library(nlme)
+#gls - no random effect
+gls.soil_temp_10_cm = gls(soil_temp_10_cm ~ plot_type + landscape_position, data = df_NEE_RECO2_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.soil_temp_10_cm)#no sig diffs
+
+
+
+#soil_temp_10_cm stats within plot type 
+
+#EC
+gls.EC.soil_temp_10_cm = gls(soil_temp_10_cm ~ landscape_position + inundated, 
+                 data = df_EClong,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.EC.soil_temp_10_cm) #no sig diff 
+
+gls.EC.soil_temp_10_cm2 = gls(soil_temp_10_cm ~ landscape_position, 
+                 data = df_EClong,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.EC.soil_temp_10_cm2) 
+
+
+
+#MW 
+gls.MW.soil_temp_10_cm = gls(soil_temp_10_cm ~ landscape_position + inundated, 
+                 data = df_MWlong,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.MW.soil_temp_10_cm) 
+
+gls.MW.soil_temp_10_cm2 = gls(soil_temp_10_cm ~ inundated, 
+                 data = df_MWlong,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.MW.soil_temp_10_cm2) 
+#landscape position p<0.007, SIG *
+#inundated p<0.007, SIG *
+emmeans(gls.MW.soil_temp_10_cm2, adjust = "Tukey", pairwise ~ landscape_position) #p=0.007 btwn lowland and upland 
+emmeans(gls.MW.soil_temp_10_cm2, adjust = "Tukey", pairwise ~ inundated) #p = 0.007
+
+
+#BGC
+gls.BGC.soil_temp_10_cm = gls(soil_temp_10_cm ~ landscape_position + inundated, 
+                 data = df_BGClong,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.BGC.soil_temp_10_cm) #land pos p = 0.2, inun =0.001 * sig 
+
+
+gls.BGC.soil_temp_10_cm2 = gls(soil_temp_10_cm ~ inundated, 
+                 data = df_BGClong,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.BGC.soil_temp_10_cm2) #p<0.001
+emmeans(gls.BGC.soil_temp_10_cm2, adjust = "Tukey", pairwise ~ inundated) #p=0.001 SIG* 
+
+
+#soil_temp_10_cm stats by landscape position 
+gls.landpos.soil_temp_10_cm = gls(soil_temp_10_cm ~ landscape_position, 
+                 data = df_NEE_RECO2_GPP,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.landpos.soil_temp_10_cm) #p=0.65, not sig 
+
+
+#soil_temp_10_cm stats by inundated 
+gls.inun.soil_temp_10_cm = gls(soil_temp_10_cm ~ inundated, 
+                 data = df_NEE_RECO2,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.inun.soil_temp_10_cm) #<0.001, sig * 
+
+
+#NEE stats by plot type 
+gls.plot.soil_temp_10_cm = gls(soil_temp_10_cm ~ plot_type, 
+                data = df_NEE_RECO2,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.plot.soil_temp_10_cm) #p=0.038, SIG *
+emmeans(gls.plot.soil_temp_10_cm, adjust = "Tukey", pairwise ~ plot_type) #contrasts show *BGC-MW contrast is 0.065, so actually not sig 
+
+```
