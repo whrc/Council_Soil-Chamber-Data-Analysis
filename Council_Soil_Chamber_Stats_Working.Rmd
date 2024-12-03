@@ -490,6 +490,7 @@ leveneTest(flux_value ~ landscape_position, data = df_RECO)
 
 #Exploratory analysis 
 
+
 #NEE
 
 #df_NEE: Testing df_NEE models 
@@ -523,6 +524,13 @@ anova(lme.NEE) #shows no sig diff in flux types among these
 anova(gls.NEE, lme.NEE) #shows no diff in model with or without random effect - so random effect not needed here 
 
 ```
+
+####Multico;llinearity - NEE
+```{r}
+library(car)
+vif(gls.NEE) # <2, no impactful multicollinearity 
+```
+
 
 ####Checking each variable on its own 
 ```{r}
@@ -617,6 +625,17 @@ NEE.final = update(var.NEE.plottype.inun, method = "REML")
 anova(NEE.final) #plottype marginal (p=0.049), landscape pos (p=0.006) and soil temp (p=0.046) are sig 
 
 
+#checking colinearity 
+
+gls.NEE2 = gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, data = df_NEE, method = 'REML', na.action=na.exclude)
+anova(gls.NEE2)
+
+
+library(car)
+vif(gls.NEE2) #all values <2, so multicolinearity is not a problem here 
+vif(gls.NEE)
+
+
 ```
 
 ####NEE.final model - Plot model residuals and qqplot
@@ -697,6 +716,11 @@ anova(lme.GPP) #only soil temp is sig
 #Comparing the models 
 anova(gls.GPP, lme.GPP) #shows no diff in model with or without random effect - so random effect not needed here 
 
+```
+####Multicollinearity - GPP
+```{r}
+library(car)
+vif(gls.GPP) # <2, no impactful multicollinearity 
 ```
 
 ####Checking each variable on its own 
@@ -847,6 +871,13 @@ hist(residuals(gls.RECO)) #shows a bit of left skew
 car::qqPlot(x = residuals(gls.RECO)) #shows where residuals breach normal distr
 
 ```
+####Multico;llinearity - RECO
+```{r}
+library(car)
+vif(gls.RECO) # <2, no impactful multicollinearity 
+```
+
+
 ####Checking each variable on its own 
 ```{r}
 #double checking each var on its own 
@@ -861,92 +892,250 @@ gls.RECO.inundated = gls(flux_value ~ inundated, data = df_RECO, method = 'ML', 
 anova(gls.RECO.inundated) #p=0.51, not sig 
 
 gls.RECO.soiltemp = gls(flux_value ~ soil_temp_10_cm, data = df_RECO, method = 'ML', na.action=na.exclude)
-anova(gls.RECO.soiltemp) #p=0.006, Sig*****************************
+anova(gls.RECO.soiltemp) #p=0.006, Sig**
+
+anova(gls.RECO, gls.RECO.soiltemp) #no sig difference
+
+plot(df_RECO$flux_value, df_RECO$soil_temp_10_cm) + geom_point()
 
 ```
-###**Variance Structure - RECO *** inundation and soil temp not working here 
+###Variance Structure - RECO 
 ```{r}
-#select variance structure --> temp and inundation aren't working here*
+#select variance structure 
 
 #based on inundation --> won't work, error: "Error in eigen(val, only.values = TRUE) : infinite or missing values in 'x'"
 var.RECO.inundated = update(gls.RECO, weights = varIdent(form = ~1|inundated), na.action=na.exclude)
-anova(var.RECO.inundated) 
-anova(gls.RECO, var.RECO.inundated) 
+anova(var.RECO.inundated) #soil temp sig, p < 0.0001
+anova(gls.RECO, var.RECO.inundated) #inundated better (p=0.04) but only slightly better AIC/BIC
 
 #based on landscape position
 var.RECO.landpos = update(gls.RECO, weights = varIdent(form = ~1|landscape_position))
-anova(var.RECO.landpos) #now showing sig diffs for soil temp (p=0.0007)
-anova(gls.RECO, var.RECO.landpos) #p = 0.59 - var does not improve model 
+anova(var.RECO.landpos) ##soil temp sig, p < 0.0001
+anova(gls.RECO, var.RECO.landpos) #p = 0.7 - var does not improve model 
 
 #based on plot type 
 var.RECO.plottype = update(gls.RECO, weights = varIdent(form = ~1|plot_type))
-anova(var.RECO.plottype) #now showing sig diffs for soil temp, landscape pos, and inundated (p<0.01)
-anova(gls.RECO, var.RECO.plottype) #p = <0.0001, adding in the variance by iplottype significantly improves the model fit (lower AIC, lower BIC, and higher LogLik)
+anova(var.RECO.plottype) #soil temp sig, p < 0.0001
+anova(gls.RECO, var.RECO.plottype) #p = <0.17, var does not improve model 
 
-#based on soil temp --> "infinite or missing values in x"
-var.RECO.soiltemp = update(gls.RECO, weights = varIdent(form = ~1|soil_temp_10_cm), na.action=na.exclude)
-anova(var.RECO.soiltemp) 
+#based on soil temp --> "infinite or missing values in x" --> skipping, not categorical 
+# var.RECO.soiltemp = update(gls.RECO, weights = varIdent(form = ~1|soil_temp_10_cm), na.action=na.exclude)
+# anova(var.RECO.soiltemp) 
 
 #now testing which models are best fit 
-#anova(var.RECO.inundated, var.RECO.landpos, var.RECO.plottype) #inundation won't work 
-# anova(var.RECO.inundated, var.RECO.landpos) 
-# anova(var.RECO.inundated,var.RECO.plottype) 
-anova(var.RECO.landpos, var.RECO.plottype) #no sig diff but plottype lower AIC/BIC, higher logLik
+anova(var.RECO.inundated, var.RECO.landpos, var.RECO.plottype) #no sig diff 
+anova(var.RECO.inundated, var.RECO.landpos) #no sig diff
+anova(var.RECO.inundated,var.RECO.plottype) #no sig diff 
+anova(var.RECO.landpos, var.RECO.plottype) #no sig diff 
+
+#looks like models with variance structure do not make a significant improvement upon model, so not needed 
 
 ```
 
-#Multiple Var Structure - RECO  *inundation and soil temp won't work 
+#Multiple Var Structure - RECO 
 ```{r}
 #looking at models with multiple variance structures 
 #inundation and land pos 
 library(nlme)
 var.RECO.landpos.inun = update(gls.RECO, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | landscape_position)))
-
 anova(var.RECO.landpos.inun) #shows sig diff in soil temp (p<0.0001)
 
 #inundation and plot type 
 var.RECO.plottype.inun = update(gls.RECO, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | plot_type)))
+anova(var.RECO.plottype.inun) #shows sig diff in soil temp (p<0.0001)
 
-anova(var.RECO.plottype.inun) #shows sig diff in all variables 
+
+#testing landpos.inun vs plottype.inun models 
+anova(var.RECO.landpos.inun,var.RECO.plottype.inun) #no sig diff here
 
 
 
 #land pos and plot type 
 var.RECO.landpos.plottype = update(gls.RECO, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)))
+anova(var.RECO.landpos.plottype) #shows sig diff in soil temp (p<0.0001)
 
-anova(var.RECO.landpos.plottype) #all variables sig 
-
-
-anova(var.RECO.landpos.inun,var.RECO.plottype.inun) #no sig diff here, but AIC/BIC lower & logLik higher in plottype.inun
-
-anova(var.RECO.landpos.inun, var.RECO.landpos.plottype, var.RECO.plottype.inun) #landpos.plottype is better than landpos.inun, and plottype.inun is better than landpos.plottype --> appears plottype and inun is best model of these three 
+#testing the three models 
+anova(var.RECO.landpos.inun, var.RECO.landpos.plottype, var.RECO.plottype.inun) #no sig diffs
 
 
 #land pos and plot type and inun
 var.RECO.all = update(gls.RECO, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type), varIdent(form = ~1 |inundated)))
-
-anova(var.RECO.all) #all variables sig 
+anova(var.RECO.all) #soil temp sig, p<0.001
 
 #testing all multiple var models 
-anova(var.RECO.plottype.inun, var.RECO.all) #RECO.all is better fit, sig 
-anova(var.RECO.landpos.inun, var.RECO.landpos.plottype, var.RECO.plottype.inun, var.RECO.all) #sig diff, but RECO.plottype.inun has lower AIC/BIC, higher logLik --> seems to fit best
+anova(var.RECO.plottype.inun, var.RECO.all) #no sig diff
+anova(var.RECO.landpos.inun, var.RECO.landpos.plottype, var.RECO.plottype.inun, var.RECO.all) #no sig diff
 
 #testing multiple var models with single var models 
-anova(gls.RECO, var.RECO.plottype.inun, var.RECO.inundated, var.RECO.landpos, var.RECO.plottype)
-#RECO.plottype.inun has lowest AIC/BIC, highest logLik so it appears to be better model 
+anova(gls.RECO, var.RECO.plottype.inun, var.RECO.landpos.inun, var.RECO.landpos.plottype, var.RECO.all,    var.RECO.inundated, var.RECO.landpos, var.RECO.plottype)
+#no sig diffs, use model without variance structure 
 
 
 #looking at fixed effects with selected model of var.RECO.plottype.inun 
-anova(var.RECO.plottype.inun, type = "marginal") #plot type (p=0.046), and soil temp (p<0.0001) are sig, inundated is marginal (p=0.055)
+anova(gls.RECO, type = "marginal") #soil temp sig (p<0.0001) 
 
 
 #refit with REML
-RECO.final = update(var.RECO.plottype.inun, method = "REML")
-anova(RECO.final) #plot type marginal (p=0.056), landscap pos and soil temp are sig 
+RECO.final = update(gls.RECO, method = "REML")
+anova(RECO.final) #soil temp sig, p<0.0001
+
+#checking residuals 
+plot(RECO.final)
+
+#checking normality with qq plot
+qqnorm(RECO.final)
+
+#comparing data QQplot to a normal QQplot and hist 
+qqnorm(residuals(RECO.final))
+hist(residuals(RECO.final)) #shows a bit of left skew
+car::qqPlot(x = residuals(RECO.final)) #shows where residuals breach normal distr
+
+summary(RECO.final)
+
+#slope and BGC plottype not showing up in the summary or stats....? or am I reading this wrong?
+
+```
+```{r}
+#Tukey
+library(lsmeans)
+library(emmeans)
+
+
+
+emmeans(RECO.final, specs = "landscape_position") # put those means/CIs in a data frame
+emmeans(RECO.final, pairwise ~ landscape_position) #Tukeypairwise
+#no sig diffs in flux among landscape positions 
+
+#pairwise contrasts of flux among categorical factors / variables 
+lsmeans(RECO.final, adjust = "Tukey", pairwise ~ landscape_position)
+lsmeans(RECO.final, adjust = "Tukey", pairwise ~ plot_type) #no sig diffs in flux among plot types 
+lsmeans(RECO.final, adjust = "Tukey", pairwise ~ inundated) #not sig 
 
 
 
 ```
+####RECO vs temp relationship -lm with R2 and p 
+```{r}
+library(ggplot2)
+
+# Create the plot with points and a linear regression line
+soil_RECO <- ggplot(df_RECO, aes(x = soil_temp_10_cm, y = flux_value)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(title = "Relationship between RECO and Soil Temperature",
+       x = "Soil Temperature at 10 cm",
+       y = "RECO (Carbon Flux)")
+
+# Print the plot
+print(soil_RECO)
+
+
+
+# Fit a linear model
+model <- lm(flux_value ~ soil_temp_10_cm, data = df_RECO, na.action=na.exclude)
+
+# Calculate R² value
+r_squared <- summary(model)$r.squared
+cat("R² value:", r_squared, "\n")
+
+# Test for significance
+summary(model)
+
+
+#Add R2 to the figure 
+# Fit a linear model
+model <- lm(flux_value ~ soil_temp_10_cm, data = df_RECO)
+
+# Calculate R² value
+r_squared <- summary(model)$r.squared
+
+# Create the plot with points, a linear regression line, and R² annotation
+soil_RECO2 <- ggplot(df_RECO, aes(x = soil_temp_10_cm, y = flux_value)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  annotate("text", x = Inf, y = Inf, label = paste("R² =", round(r_squared, 2)),
+           hjust = 1.1, vjust = 1.1, size = 5, color = "red") +
+  labs(title = "Relationship between RECO and Soil Temperature",
+       x = "Soil Temperature at 10 cm",
+       y = "RECO (Carbon Flux)")+
+  theme_minimal()
+
+# Print the plot
+print(soil_RECO2)
+
+```
+#Interactions - RECO
+```{r}
+#landpos * inundated 
+RECO.interaction <- gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm +
+                          landscape_position * inundated,
+                        data = df_RECO, method = 'REML', na.action = na.exclude)
+anova(RECO.interaction) #landpos and inundated not a sig interaction 
+
+anova(RECO.final, RECO.interaction) #RECO interaction better, p<0.0001
+
+#plottype * inundated
+RECO.interaction2 <- gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm + 
+                           inundated * plot_type,
+                        data = df_RECO, method = 'REML', na.action = na.exclude)
+anova(RECO.interaction2) #plottype and inundated not a sig interaction 
+
+anova(RECO.final, RECO.interaction2) #RECO interaction2 better, p<0.0001
+
+#landpos * soil temp 
+RECO.interaction3 <- gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm + 
+                           landscape_position * soil_temp_10_cm,
+                        data = df_RECO, method = 'REML', na.action = na.exclude)
+anova(RECO.interaction3) #plottype and inundated not a sig interaction 
+
+anova(RECO.final, RECO.interaction3) #RECO interaction2 better, p<0.0001, even though interaction effect not sig 
+
+
+#plottype * soil temp 
+RECO.interaction4 <- gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm + 
+                           soil_temp_10_cm* plot_type,
+                        data = df_RECO, method = 'REML', na.action = na.exclude)
+anova(RECO.interaction4) #plottype and inundated not a sig interaction 
+
+anova(RECO.final, RECO.interaction4) #RECO interaction2 better, p<0.0001, even though interaction effect not sig 
+
+#plottype * soil temp 
+RECO.interaction5 <- gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm + 
+                           soil_temp_10_cm * inundated,
+                        data = df_RECO, method = 'REML', na.action = na.exclude)
+anova(RECO.interaction5) #plottype and inundated not a sig interaction 
+
+anova(RECO.final, RECO.interaction5) #RECO interaction2 better, p<0.0001, even though interaction effect not sig 
+
+####Simplifying the model 
+
+#gls - no random effect
+gls.RECO1 = gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm, data = df_RECO, method = 'REML', na.action=na.exclude)
+anova(gls.RECO1)
+
+gls.RECO2 = gls(flux_value ~ plot_type + inundated + soil_temp_10_cm, data = df_RECO, method = 'REML', na.action=na.exclude)
+anova(gls.RECO2)
+
+
+anova(gls.RECO1, gls.RECO2) #RECO2 better 
+
+
+gls.RECO3 = gls(flux_value ~ plot_type + soil_temp_10_cm, data = df_RECO, method = 'REML', na.action=na.exclude)
+anova(gls.RECO3)
+
+anova(gls.RECO1, gls.RECO2, gls.RECO3) #RECO3 better
+
+
+
+gls.RECO4 = gls(flux_value ~ soil_temp_10_cm, data = df_RECO, method = 'REML', na.action=na.exclude)
+anova(gls.RECO4)
+
+anova(gls.RECO1, gls.RECO2, gls.RECO3, gls.RECO4) #RECO4 better
+
+
+```
+
+
 
 
 #Older code, ignore for now 
