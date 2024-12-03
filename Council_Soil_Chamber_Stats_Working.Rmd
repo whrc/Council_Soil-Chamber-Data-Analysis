@@ -64,9 +64,14 @@ df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Co
 ```
 
 
-#Boxplots exploring some data 
+#Re-shape df 
 ```{r}
 library(tidyr)
+
+#Remove the NAs from inundation 
+library(dplyr)
+df_NEE_RECO2_GPP<- df_NEE_RECO2_GPP %>%
+   filter(!is.na(inundated))
 
 
 # Reshape the dataframe to long format
@@ -87,15 +92,15 @@ df_long <- df_NEE_RECO2_GPP %>%
 
 # library(dplyr)
 
-# Step 1: Filter the dataframe for plot_ID = "EC" "MW" and "BGC", and by flux type to create df for diff analysis options
+#Filter the dataframe for plot_ID = "EC" "MW" and "BGC", and by flux type to create df for diff analysis options
 
 #EC - eddy covar tower plot types 
 df_EC <- df_NEE_RECO2_GPP %>%
   filter(plot_type == "EC")
 
 #EC - eddy covar tower plot types; just another way to subset - doing it this way saves you from having to make df_EC into d_long format, but below way allows you to choose variables of interest and simplify the df
-df_EC2 <- df_long %>%
-  filter(plot_type == "EC")
+# df_EC2 <- df_long %>%
+#   filter(plot_type == "EC")
 
 #MW - moisture warming plot types 
 df_MW <- df_NEE_RECO2_GPP %>%
@@ -117,7 +122,7 @@ df_RECO <-df_long %>%
   filter(flux_type == "RECO")
 
 
-# Step 2: Reshape the dataframe to long format and choose variables of interest 
+#Reshape the dataframe to long format and choose variables of interest 
 
 #EC
 df_EClong <- df_EC %>%
@@ -194,9 +199,9 @@ ggplot(df_NEE, aes(x = soil_temp_10_cm, y = flux_value)) +
 ```{r}
 # Calculate variance within groups
 
-#exclude NA
-sum(is.na(df_NEE$flux_value)) #flux val has 0 NAs; inundated has 2
-df_NEE.c1 <- df_NEE[complete.cases(df_NEE[, c("inundated")]), ]
+#exclude NA --> edited to be done beforehand in code chunks above 
+# sum(is.na(df_NEE$flux_value)) #flux val has 0 NAs; inundated has 2
+# df_NEE.c1 <- df_NEE[complete.cases(df_NEE[, c("inundated")]), ]
 
 
 #Flux and landscape pos
@@ -486,9 +491,7 @@ leveneTest(flux_value ~ landscape_position, data = df_RECO)
 ```
 
 
-
-
-#Exploratory analysis 
+#Testing Models 
 
 
 #NEE
@@ -525,7 +528,7 @@ anova(gls.NEE, lme.NEE) #shows no diff in model with or without random effect - 
 
 ```
 
-####Multico;llinearity - NEE
+####Multicollinearity - NEE
 ```{r}
 library(car)
 vif(gls.NEE) # <2, no impactful multicollinearity 
