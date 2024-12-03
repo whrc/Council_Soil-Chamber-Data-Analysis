@@ -65,6 +65,12 @@ df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Co
 ```{r}
 library(tidyr)
 
+#Remove the NAs from inundation 
+library(dplyr)
+df_NEE_RECO2_GPP<- df_NEE_RECO2_GPP %>%
+   filter(!is.na(inundated))
+
+
 
 # Reshape the dataframe to long format
 df_long <- df_NEE_RECO2_GPP %>%
@@ -72,6 +78,7 @@ df_long <- df_NEE_RECO2_GPP %>%
   pivot_longer(cols = c(NEE, RECO, GPP), 
                names_to = "flux_type", 
                values_to = "flux_value")
+
 
 # Create the boxplot: NEE and RECO flux vs landscape position 
 ggplot(df_long, aes(x = landscape_position, y = flux_value, fill = flux_type)) +
@@ -121,7 +128,7 @@ ggplot(df_long %>% filter(plot_type == "BGC"),
 ggplot(df_long,
        aes(x=landscape_position, y = (FCH4 * 1000), fill = plot_type))+
   geom_boxplot()+
-  labs( title = "FCH4 by plot type vs inundation",
+  labs( title = "FCH4 by plot type vs landscape position ",
         x = "Landscape position",
         y = "FCH4 (gCH4/m2/s)",
         fill = "Plot Type")+
@@ -130,8 +137,9 @@ ggplot(df_long,
   scale_y_continuous(limits = c(-0.0005, 0.0007))
 
 
-#looking at FCH4 (in g/m2/s) by inundation - scaled
-ggplot(df_long,
+#looking at FCH4 (in g/m2/s) by inundation - scaled (omit NAs)
+#ggplot(df_long %>% filter (!is.na(inundated)), #removing NAs within a fig only 
+       ggplot(df_long,
        aes(x=inundated, y = (FCH4 * 1000), fill = plot_type))+
   geom_boxplot()+
   labs( title = "FCH4 vs inundation",
@@ -191,6 +199,7 @@ ggplot(df_long %>% filter(flux_type == "NEE") %>%
          drop_na(inundated), 
        aes(x=landscape_position, y = flux_value, color = inundated))+
   geom_jitter() +
+  labs(title = "NEE")+
   theme_minimal()
 
 #RECO based on inundation and landscape position --> no real differences seen 
@@ -198,6 +207,7 @@ ggplot(df_long %>% filter(flux_type == "RECO") %>%
          drop_na(inundated), 
        aes(x=landscape_position, y = flux_value, color = inundated))+
   geom_jitter() +
+  labs(title = "RECO")+
   theme_minimal()
   
 
@@ -206,6 +216,7 @@ ggplot(df_long %>% filter(flux_type == "GPP") %>%
          drop_na(inundated), 
        aes(x=landscape_position, y = flux_value, color = inundated))+
   geom_jitter() +
+  labs(title = "GPP")+
   theme_minimal()
 
 #Checking to see which plots are inundated 
@@ -326,8 +337,8 @@ library(ggplot2)
 #plot - filtered df but not converted or subset, units are umolC/m2/s
 
 # Create the scatter plot
-ggplot(df_soilchambers_filtered, aes(x = measurement_date, y = flux_CO2, 
-                                      color = landscape_position, shape = chamber_type)) +
+ggplot(df_NEE_RECO2_GPP, aes(x = plot_type, y = flux_CO2, 
+                                      color = landscape_position, shape = inundated)) +
   geom_point(size = 3, position = position_jitter(width = 0.8, height = 0)) +  # Adjust point size for better visibility
   labs(x = "Measurement Date", y = "CO2 Flux (umol/m2/s)", 
        title = "CO2 Flux vs Measurement Date by Landscape Position and Chamber Type") +
