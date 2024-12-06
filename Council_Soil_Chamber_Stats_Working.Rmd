@@ -1137,6 +1137,362 @@ anova(gls.RECO1, gls.RECO2, gls.RECO3, gls.RECO4) #RECO4 better
 
 
 ```
+#Methane 
+
+####Variance in methane 
+
+```{r}
+
+# looking at data spread in FCH4
+ggplot(df_NEE_RECO2_GPP, aes(x = landscape_position, y = FCH4)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "FCH4 vs landpos ")
+#lots of outliers 
+
+
+# looking at data spread in FCH4
+ggplot(df_NEE_RECO2_GPP, aes(x = inundated, y = FCH4)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "FCH4 vs inundated ")
+#more spread in inundated 
+
+
+# looking at data spread in FCH4
+ggplot(df_NEE_RECO2_GPP, aes(x = plot_type, y = FCH4)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "FCH4 vs inundated ")
+#lots of outliers in BGC
+
+
+# looking at data spread in FCH4
+ggplot(df_NEE_RECO2_GPP, aes(x = soil_temp_10_cm, y = FCH4)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "FCH4 vs soil T ")
+
+
+#FCH4 and plot type
+df_variance_plottype <- df_NEE_RECO2_GPP %>%
+  group_by(plot_type) %>%
+  summarize(variance = var(FCH4, na.rm = TRUE))
+
+print(df_variance_plottype)
+
+# Variance plot - flux and plot type 
+ggplot(df_variance_plottype, aes(x = plot_type, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Plot Type",
+       y = "Variance")
+#much higher variance in BGC - likely needs a var structure
+
+
+#FCH4 and land pos 
+df_variance_landpos <- df_NEE_RECO2_GPP %>%
+  group_by(landscape_position) %>%
+  summarize(variance = var(FCH4, na.rm = TRUE))
+
+print(df_variance_landpos) #this shows high variance in lowland 
+
+# Variance plot - flux and plot type 
+ggplot(df_variance_landpos, aes(x = landscape_position, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Land pos",
+       y = "Variance")
+#this shows much higher variance in slope compared to other land pos 
+
+
+
+#FCH4 and inundated
+df_variance_inun <- df_NEE_RECO2_GPP %>%
+  group_by(inundated) %>%
+  summarize(variance = var(FCH4, na.rm = TRUE))
+
+print(df_variance_inun) #this shows high variance in inundated
+
+# Variance plot - flux and plot type 
+ggplot(df_variance_inun, aes(x = inundated, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by inundation",
+       y = "Variance")
+#this shows much higher variance in inundated 
+
+#Need to test variance structures for methane before continuing with soil chamber methane stats*** 
+
+
+
+
+```
+#df_FCH4: Testing FCH4 models
+```{r}
+#testing models 
+
+#Make plot_ID, inundated, plot_type, landscape_position factor so they'll work with gls
+
+df_NEE_RECO2_GPP$plot_ID = factor(df_NEE_RECO2_GPP$plot_ID)
+df_NEE_RECO2_GPP$plot_type = factor (df_NEE_RECO2_GPP$plot_type)
+df_NEE_RECO2_GPP$landscape_position = factor(df_NEE_RECO2_GPP$landscape_position)
+df_NEE_RECO2_GPP$inundated = factor(df_NEE_RECO2_GPP$inundated)
+#df_NEE$soil_temp_10_cm = as.numeric (df_NEE$soil_temp_10_cm)
+
+#Tried with both 'ML' and 'REML' - no major diffs in results 
+
+#gls - no random effect
+gls.FCH4 = gls(FCH4~ plot_type + landscape_position + inundated + soil_temp_10_cm, data = df_NEE_RECO2_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.FCH4) #sig diff in soil temp p=0.02, inundated p <0.001
+
+#lme - with random effect of plot_ID
+lme.FCH4 <- lme(FCH4 ~ plot_type + landscape_position + inundated + soil_temp_10_cm, 
+               random = ~1 | plot_ID, 
+               data = df_NEE_RECO2_GPP, na.action=na.exclude , 
+               method = 'ML')
+anova(lme.FCH4) #sig diff in soil temp p=0.01, inundated p <0.001
+
+#Comparing the models 
+anova(gls.FCH4, lme.FCH4) #p=0.008, but AIC.BIC very similar)
+
+#comparing data QQplot to a normal QQplot and hist 
+qqnorm(residuals(gls.FCH4))
+hist(residuals(gls.FCH4)) #shows a bit of left skew
+car::qqPlot(x = residuals(gls.FCH4)) #shows where residuals breach normal distr
+
+#comparing data QQplot to a normal QQplot and hist 
+qqnorm(residuals(lme.FCH4))
+hist(residuals(lme.FCH4)) #shows a bit of left skew
+car::qqPlot(x = residuals(lme.FCH4)) #shows where residuals breach normal distr
+
+```
+
+#Multicollinearity
+```{r}
+library(car)
+vif(gls.FCH4) # <2, no impactful multicollinearity 
+vif(gls.FCH4) # <2, no impactful multicollinearity 
+```
+
+
+####Checking each variable on its own 
+```{r}
+#double checking each var on its own 
+
+gls.FCH4.landscape = gls(FCH4 ~ landscape_position, data = df_NEE_RECO2_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.FCH4.landscape) #p=0.88, not sig 
+
+gls.FCH4.plottype = gls(FCH4 ~ plot_type, data = df_NEE_RECO2_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.FCH4.plottype) #p=0.49, not sig 
+
+gls.FCH4.inundated = gls(FCH4 ~ inundated, data = df_NEE_RECO2_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.FCH4.inundated) #p=0.51, not sig 
+
+gls.FCH4.soiltemp = gls(FCH4 ~ soil_temp_10_cm, data = df_NEE_RECO2_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.FCH4.soiltemp) #p=0.006, Sig**
+
+
+```
+###Variance Structure - FCH4 
+```{r}
+#select variance structure 
+
+#based on inundation --> won't work, error: "Error in eigen(val, only.values = TRUE) : infinite or missing values in 'x'"
+var.FCH4.inundated = update(gls.FCH4, weights = varIdent(form = ~1|inundated), na.action=na.exclude)
+anova(var.FCH4.inundated) #only inundated sig, p <0.001
+anova(gls.FCH4, var.FCH4.inundated) #inundated better (p<0.001, and AIC/BIC lower, higher logLik 
+
+#based on landscape position
+var.FCH4.landpos = update(gls.FCH4, weights = varIdent(form = ~1|landscape_position))
+anova(var.FCH4.landpos) ##inundated (<0.001), soil temp (0.01), plot type <0.001 sig 
+anova(gls.FCH4, var.FCH4.landpos) #p = <0.001, var improves model 
+
+#based on plot type 
+var.FCH4.plottype = update(gls.FCH4, weights = varIdent(form = ~1|plot_type))
+anova(var.FCH4.plottype) #plot type, land pos, and inundated all sig at p=0.001
+anova(gls.FCH4, var.FCH4.plottype) #p = <0.001, var improves model 
+
+
+#now testing which models are best fit 
+anova(var.FCH4.inundated, var.FCH4.landpos, var.FCH4.plottype) #land pos p <0.001, landpos better 
+anova(var.FCH4.inundated, var.FCH4.landpos) #landpos <0.001 - landpos better 
+anova(var.FCH4.inundated,var.FCH4.plottype) #plottype better (p<0.001)
+anova(var.FCH4.landpos, var.FCH4.plottype) #no sig diff 
+
+#looks like models with variance structure do not make a significant improvement upon model, so not needed 
+
+```
+
+#Multiple Var Structure - FCH4 
+```{r}
+#looking at models with multiple variance structures 
+#inundation and land pos 
+library(nlme)
+var.FCH4.landpos.inun = update(gls.FCH4, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | landscape_position)))
+anova(var.FCH4.landpos.inun) #shows sig diff in inundated p<0.01
+
+#inundation and plot type 
+var.FCH4.plottype.inun = update(gls.FCH4, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | plot_type)))
+anova(var.FCH4.plottype.inun) #plot type, landpos, and inundated sig diff p<0.01
+
+
+#testing landpos.inun vs plottype.inun models 
+anova(var.FCH4.landpos.inun,var.FCH4.plottype.inun) #no sig diff here
+
+
+
+#land pos and plot type 
+var.FCH4.landpos.plottype = update(gls.FCH4, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)))
+anova(var.FCH4.landpos.plottype) # plot type, landpos, and inundated sig diff p<0.01
+
+#testing the three models 
+anova(var.FCH4.landpos.inun, var.FCH4.landpos.plottype, var.FCH4.plottype.inun) #landpos.inun and plottype.inun improve model, plottype.inun is best*
+
+
+#land pos and plot type and inun
+var.FCH4.all = update(gls.FCH4, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type), varIdent(form = ~1 |inundated)))
+anova(var.FCH4.all) #land pos, plot type, and inun sig diff 
+
+#testing all multiple var models 
+anova(var.FCH4.plottype.inun, var.FCH4.all) #var.all slightly better, sig diff 
+anova(var.FCH4.landpos.inun, var.FCH4.landpos.plottype, var.FCH4.plottype.inun, var.FCH4.all) #nearly all sig diff, var.all slightly best 
+
+#testing multiple var models with single var models 
+anova(lme.FCH4, gls.FCH4, var.FCH4.plottype.inun, var.FCH4.landpos.inun, var.FCH4.landpos.plottype, var.FCH4.all,    var.FCH4.inundated, var.FCH4.landpos, var.FCH4.plottype)
+#no sig diffs, use model without variance structure 
+
+#test for interaction effect between landpos and inun*
+gls.FCH4.interact = gls(FCH4~ plot_type + landscape_position + inundated + soil_temp_10_cm + landscape_position*inundated, data = df_NEE_RECO2_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.FCH4.interact) #inundated and soil temp are sig, and sig interaction effect between landpos and inun
+
+gls.FCH4.interact2 = gls(FCH4~ plot_type + landscape_position + inundated + soil_temp_10_cm + plot_type*inundated, data = df_NEE_RECO2_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.FCH4.interact2) #shows soil temp and inundated as sig, but no sig interaction effect of plot type and inun
+
+
+#testing all models now 
+anova(lme.FCH4, gls.FCH4, var.FCH4.plottype.inun, var.FCH4.landpos.inun, var.FCH4.landpos.plottype, var.FCH4.all,    var.FCH4.inundated, var.FCH4.landpos, var.FCH4.plottype, gls.FCH4.interact, gls.FCH4.interact2)
+
+```
+
+#LME CH4 with var structure 
+```{r}
+
+#lme with random effects and interaction/varIdent 
+
+#var.FCH4.inundated = update(gls.FCH4, weights = varIdent(form = ~1|inundated), na.action=na.exclude)
+
+var.lmeFCH4.landpos <- update(lme.FCH4, weights = varIdent(form = ~ 1| landscape_position))
+anova(var.lmeFCH4.landpos) #inundated and soil temp p<0.01
+
+var.lmeFCH4.inun <- update(lme.FCH4, weights = varIdent(form = ~1 |inundated))
+anova(var.lmeFCH4.inun)#inundated and soil temp p<0.05
+
+var.lmeFCH4.landposinun <- update(lme.FCH4, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~1 |inundated)))
+anova(var.lmeFCH4.landposinun)#inundated and soil sig 
+
+var.lmeFCH4.interact  =  lme(FCH4~ plot_type + landscape_position + inundated + soil_temp_10_cm + landscape_position*inundated, random = ~ 1 | plot_ID, data = df_NEE_RECO2_GPP, method = 'ML', na.action=na.exclude)
+anova(gls.FCH4.interact) #inundated, soil temp, are sig, and sig interaction btwn landpos and inun
+
+var.lmeFCH4.all <- update(lme.FCH4, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~1 |inundated), varIdent(form = ~1 |plot_type)))
+anova(var.lmeFCH4.all)#landpos and inundated are sig p<0.05
+
+#varIdent and interaction
+var.lmeFCH4.interact2 <- update(var.lmeFCH4.interact, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~1 |inundated), varIdent(form = ~1 |plot_type)))
+anova(var.lmeFCH4.interact2) #land pos and inundated sig 
+
+var.lmeFCH4.interact3 <- update(var.lmeFCH4.interact, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~1 |inundated)))
+anova(var.lmeFCH4.interact3) #inundated and landpos:inundated are sig 
+
+var.lmeFCH4.interact4 <- update(var.lmeFCH4.interact, weights = varIdent(form = ~ 1| landscape_position))
+anova(var.lmeFCH4.interact4) #all variables sig 
+
+var.lmeFCH4.interact4 <- update(var.lmeFCH4.interact, weights = varIdent(form = ~1 |inundated))
+anova(var.lmeFCH4.interact4)#inundated, soil temp, land pos sig 
+
+#testing lme models and gls models 
+
+anova(lme.FCH4, gls.FCH4, var.FCH4.plottype.inun, var.FCH4.landpos.inun, var.FCH4.landpos.plottype, var.FCH4.all,    var.FCH4.inundated, var.FCH4.landpos, var.FCH4.plottype, gls.FCH4.interact, gls.FCH4.interact2, var.lmeFCH4.landpos ,var.lmeFCH4.inun,var.lmeFCH4.landposinun, var.lmeFCH4.interact)
+
+#var.all seems to be best fitting model...landpos.inun also high, will use both models for CH4 stats for now and compare
+
+anova(var.FCH4.landpos.inun,var.FCH4.all,var.lmeFCH4.landposinun, var.lmeFCH4.interact2,var.lmeFCH4.interact3, var.lmeFCH4.interact4, var.lmeFCH4.interact)
+
+#seems lme.CH4.interact2 is best model, even compared to var.all so var.lmeFCH4.interact2 is final model for now but need to ask kyle about all this craziness 
+
+
+
+
+#looking at fixed effects with selected model of var.FCH4.plottype.inun 
+#anova(gls.FCH4, type = "marginal") #soil temp sig (p<0.0001) 
+anova(var.lmeFCH4.interact2, type = "marginal") #only inundated is sig, but landpos:inun is not, remove and test 
+
+anova(var.lmeFCH4.all,var.lmeFCH4.interact2) #no sig diff between the 2, so removing the interaction effect does not have an effect on the model 
+
+anova(var.lmeFCH4.all, type = "marginal") #only inundated is sig -- 
+anova(var.FCH4.landpos.inun, type = "marginal") #only inun is sig 
+
+#refit with REML
+# FCH4.final = update(gls.FCH4, method = "REML")
+# anova(FCH4.final) #soil temp sig, p<0.0001
+FCH4.final1 = update(var.lmeFCH4.all, method = "REML")
+anova(FCH4.final1) #inundated is sig p<0.001
+
+FCH4.final2 = update(var.lmeFCH4.interact2, method = "REML")
+anova(FCH4.final2) #only inun is sig, p<0.001
+
+FCH4.final3 = update(var.FCH4.landpos.inun, method = "REML")
+anova(FCH4.final3)#only inun sig 
+
+#checking residuals 
+plot(FCH4.final1) #1 looks a little better 
+plot(FCH4.final2)
+plot(FCH4.final3)#worse
+
+
+#checking normality with qq plot
+qqnorm(FCH4.final1) #these look awful 
+qqnorm(FCH4.final2) #looks awful 
+qqnorm(FCH4.final3) #worse
+
+#comparing data QQplot to a normal QQplot and hist 
+qqnorm(residuals(FCH4.final1))
+hist(residuals(FCH4.final1)) #shows a bit of left skew
+car::qqPlot(x = residuals(FCH4.final1)) #shows where residuals breach normal distr
+
+qqnorm(residuals(FCH4.final2))
+hist(residuals(FCH4.final2)) #shows a bit of left skew
+car::qqPlot(x = residuals(FCH4.final2)) 
+
+summary(FCH4.final1) #stronger model, shows inundated is sig diff 
+summary(FCH4.final2) #shows inundated and landpos:inun is sig 
+
+#slope and BGC plottype not showing up in the summary or stats....? or am I reading this wrong?
+
+```
+#NEED TO DO: look at methane in individual plot types and run stats on that* 
+```{r}
+#Tukey
+library(lsmeans)
+library(emmeans)
+
+
+
+emmeans(FCH4.final, specs = "landscape_position") # put those means/CIs in a data frame
+emmeans(FCH4.final, pairwise ~ landscape_position) #Tukeypairwise
+#no sig diffs in flux among landscape positions 
+
+#pairwise contrasts of flux among categorical factors / variables 
+lsmeans(FCH4.final, adjust = "Tukey", pairwise ~ landscape_position)
+lsmeans(FCH4.final, adjust = "Tukey", pairwise ~ plot_type) #no sig diffs in flux among plot types 
+lsmeans(FCH4.final, adjust = "Tukey", pairwise ~ inundated) #not sig 
+
+
+
+```
+
+
+
 
 
 
@@ -1336,6 +1692,10 @@ print(t_test_result)
 
 
 ```
+
+
+
+
 ```{r}
 # Load lmerTest package for p-values - this does LMM with an added p-value 
 library(lmerTest)
