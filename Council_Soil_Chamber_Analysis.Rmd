@@ -56,6 +56,30 @@ df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Co
 
 ```
 
+#Kyle recommended having units be umol, so convert from gC/m2/s to umolC/m2/s
+```{r}
+# #umol to g
+# # Net CO2 Flux - convert from umol/m2/s to gC/m2/s
+#  flux_CO2 * (1/1000000) * 12))
+# 
+# 
+# #Net CH4 flux --> convert from nmol/m2/s to gC/m2/s
+#  flux_CH4 * (1/1000000000)*12))
+
+#flux-CO2 and flux-CH4 are in this df and are already in umol so below is not necessary but leaving for reference
+
+
+#g to umol 
+# Net CO2 Flux - convert from umol/m2/s to gC/m2/s
+# df_NEE_RECO2_GPP <- df_NEE_RECO2_GPP%>%
+#   mutate(FCO2 = ifelse(is.na(flux_CO2), 0, flux_CO2 * 1/12 * 1000000)) 
+# 
+# 
+# #Net CH4 flux --> convert from nmol/m2/s to gC/m2/s
+# df_NEE_RECO2_GPP < - df_NEE_RECO2_GPP %>%
+#   mutate(FCH4 = ifelse(is.na(flux_CH4), 0, flux_CH4 * 1/12 * 1000000000)*12))
+```
+
 
 #Re-shape df 
 ```{r}
@@ -69,10 +93,11 @@ df_NEE_RECO2_GPP<- df_NEE_RECO2_GPP %>%
 
 # Reshape the dataframe to long format
 df_long <- df_NEE_RECO2_GPP %>%
-  select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, flux_CO2, flux_CH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>%
   pivot_longer(cols = c(NEE, RECO, GPP), 
                names_to = "flux_type", 
                values_to = "flux_value")
+
 
 
 ```
@@ -377,6 +402,8 @@ gls.plot.RECO = gls(flux_value ~ plot_type,
 anova(gls.plot.RECO) #p=0.5, not sig 
 
 ```
+#Need to test variance structures for methane before continuing with soil chamber methane stats*** 
+
 #FCH4 stats 
 ```{r}
 #FCH4 stats overall 
@@ -447,6 +474,12 @@ gls.inun.FCH4 = gls(FCH4 ~ inundated,
                  data = df_NEE_RECO2,
                  method = 'REML', na.action=na.exclude)
 anova(gls.inun.FCH4) #p=0.5, not sig 
+
+#FCH4 stats by inundated 
+gls.inun.FCH42 = gls(FCH4 ~ inundated + landscape_position, 
+                 data = df_NEE_RECO2,
+                 method = 'REML', na.action=na.exclude)
+anova(gls.inun.FCH42) #p=0.5, not sig 
 
 #FCH4 stats by soil temp at 10cm
 gls.temp.FCH4 = gls(FCH4 ~ soil_temp_10_cm, 
@@ -542,3 +575,613 @@ anova(gls.plot.soil_temp_10_cm) #p=0.038, SIG *
 emmeans(gls.plot.soil_temp_10_cm, adjust = "Tukey", pairwise ~ plot_type) #contrasts show *BGC-MW contrast is 0.065, so actually not sig 
 
 ```
+#Figures 
+
+```{r}
+# Create the boxplot: NEE and RECO flux vs landscape position 
+
+ggplot(df_long, aes(x = landscape_position, y = (flux_value *1/12 * 1000000), fill = flux_type)) +
+  geom_boxplot() +
+  labs(title = "Council Soil Chamber GPP, NEE, and Respiration by Landscape Position",
+       x = "Landscape Position",
+       #y = expression(Flux~Value~(gCO[2]-C~m^-2~s^-1)),
+        #y = expression(Flux~Value~(*mu*molCO[2]-C/m^2/s)),
+        y = expression("Flux Value (" * mu * "mol " ~ m^-2 * s^-1 * ")"),
+       fill = "Flux Type") +
+  geom_hline(yintercept = 0) +
+    scale_y_continuous(limits = c(-6, 6))+ 
+                     # breaks = seq(-7, 7, 1.5)+  # Specify the tick positions you want)+
+  theme_minimal() +
+  theme(
+   axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))
+
+
+
+# EC plot type NEE and RECO flux vs landscape position 
+ggplot(df_long %>% filter(plot_type == "EC"),
+       aes(x = landscape_position, y = (flux_value *1/12 * 1000000), fill = flux_type)) +
+  geom_boxplot() +
+  labs(title = "EC Plots: GPP, NEE, and Respiration vs Landscape Position",
+       x = "Landscape Position",
+        #y = expression(Flux~Value~(gCO[2]-C/m^2/s)),
+         y = expression("Flux Value (" * mu * "mol " ~ m^-2 * s^-1 * ")"),
+       fill = "Flux Type") +
+   geom_hline(yintercept = 0)+
+  scale_y_continuous(limits =c(-6, 6))+
+  #scale_y_continuous(limits = c(-0.0005, 0.0007))+
+   # scale_y_continuous(limits = c(-0.0002, 0.0002))+ 
+                       #breaks = seq(-0.00003, 0.00008, 0.000125))+  # Specify the tick positions you want)+
+  theme_minimal()+ 
+  theme(
+   axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))
+  #annotate("text", x = #, y = #, label = "Annotation Text", size = 5, color = "blue")
+  
+
+# MW plots by landscape position 
+ggplot(df_long %>% filter(plot_type == "MW"),
+       aes(x = landscape_position, y = (flux_value *1/12 * 1000000), fill = flux_type)) +
+  geom_boxplot() +
+  labs(title = "MW Plots: GPP, NEE, and RECO vs Landscape Position",
+       x = "Landscape Position",
+        #y = expression(Flux~Value~(gCO[2]-C/m^2/s)),
+          y = expression("Flux Value (" * mu * "mol " ~ m^-2 * s^-1 * ")"),
+       fill = "Flux Type") +
+   geom_hline(yintercept = 0)+
+   scale_y_continuous(limits =c(-6, 6))+
+  #scale_y_continuous(limits = c(-0.0005, 0.0007))+
+  #scale_y_continuous(limits = c(-0.0002, 0.0002))+ 
+  theme_minimal()+
+   theme(
+   axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))
+
+
+# BGC plots by landscape position 
+ggplot(df_long %>% filter(plot_type == "BGC"),
+       aes(x = landscape_position, y = (flux_value *1/12 * 1000000), fill = flux_type)) +
+  geom_boxplot() +
+  labs(title = "BGC Plots: GPP, NEE, and RECO vs Landscape Position",
+       x = "Landscape Position",
+       #y = expression(Flux~Value~(gCO[2]-C/m^2/s)),
+       y = expression("Flux Value (" * mu * "mol " ~ m^-2 * s^-1 * ")"),
+       fill = "Flux Type") +
+   geom_hline(yintercept = 0)+
+  #scale_y_continuous(limits = c(-0.0005, 0.0007))+
+  scale_y_continuous(limits = c(-6, 6))+ 
+  theme_minimal()+
+   theme(
+   axis.title.x = element_text(size = 14),  
+    axis.text.x = element_text(size = 12, face = "bold"), 
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))
+
+
+
+```
+#save image to maintain dimensions 
+```{r}
+ggsave(
+  filename = "2017-2023_Seasonal_Trends2.png",  # File name and extension
+  plot = Monster_plot,        # The plot to save (default is the last plot created)
+  width = 60,                 # Width in inches
+  height = 17,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+
+#ggsave("my_plot.pdf", width = 8, height = 6, dpi = 300, units = "in")
+```
+#methane exploratory 
+```{r}
+#looking at FCH4 (in g/m2/s) by landscape position and plot type - scaled 
+ggplot(df_long,
+       aes(x=landscape_position, y = FCH4, fill = plot_type))+
+  geom_boxplot()+
+  labs( title = "Methane Flux by Plot Type vs Landscape Position ",
+        x = "Landscape Position",
+          y = expression(FCH4~(gCH[4]-C/m^2/s)),
+          fill = "Plot Type")+
+  geom_hline(yintercept=0)+
+  #geom_hline(yintercept = 0.007)+
+  theme_minimal() +
+ #scale_y_continuous(limits = c())+
+                      #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+    theme(
+   axis.title.x = element_text(size = 14),  
+    axis.text.x = element_text(size = 12, face = "bold"), 
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))
+
+
+
+#looking at FCH4 (in g/m2/s) by landscape position and plot type, facet wrapped 
+ggplot(df_long,
+       aes(x=landscape_position, y = FCH4, fill = plot_type))+
+  geom_boxplot()+
+  labs( title = "Methane Fluxes within Plot Type vs Landscape Position ",
+        x = "Landscape Position",
+          y = expression(Methane~Flux~(gCH[4]-C/m^2/s)),
+          fill = "Plot Type")+
+  geom_hline(yintercept=0)+
+  #geom_hline(yintercept = 0.007)+
+  #theme_minimal() +
+  theme_bw()+
+ #scale_y_continuous(limits = c(-0.000001, 0.00001))+
+                      #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+    theme(
+   axis.title.x = element_text(size = 14),  
+    axis.text.x = element_text(size = 12, face = "bold"), 
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold")) +
+   #facet_wrap(~plot_type, labeller = "label_both")
+  facet_wrap(vars(plot_type), scales = "free_x")
+ 
+# 
+# summary(df_MW$FCH4)
+# summary(df_EC$FCH4)
+
+
+#looking at FCH4 (in g/m2/s) by inundation
+#ggplot(df_long %>% filter (!is.na(inundated)), #removing NAs within a fig only 
+       ggplot(df_long,
+       aes(x=inundated, y = FCH4, fill = plot_type))+
+  geom_boxplot()+
+  labs( title = "Methane Flux vs Inundation",
+        x = "Inundation",
+         y = expression(FCH4~(gCH[4]-C/m^2/s)),
+        fill = "plot type")+
+  geom_hline(yintercept=0)+
+  theme_minimal() +
+    #scale_y_continuous(limits = c(-0.0005, 0.002),
+                     #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+    theme(
+   axis.title.x = element_text(size = 14),  
+    axis.text.x = element_text(size = 12, face = "bold"), 
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))
+       
+       
+ # Create the scatter plot for methane 
+ggplot(df_long, aes(x = landscape_position, y = FCH4, 
+                                      color = plot_type, shape = inundated)) +
+  geom_point(size = 3, position = position_jitter(width = 0.8, height = 0)) +  # Adjust point size for better visibility
+  #scale_y_continuous(#limits = c(-0.0005, 0.0007),
+                     #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+  labs(x = "Landscape Position", 
+         y = expression(FCH4~(gCH[4]-C/m^2/s)), 
+       title = "CH4 Flux vs Landscape Position and Inundation") +
+  scale_color_manual(values = c("EC" = "green", "MW" = "blue", "BGC" = "red")) +  # Adjust color palette as needed
+  theme_minimal() +  # Apply minimal theme for a clean look
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+
+
+ggplot(df_long, aes(x = landscape_position, y = FCH4, 
+                    color = plot_type, shape = inundated)) +
+  geom_point(size = 3, stroke = 1.2, fill = NA, 
+             position = position_jitter(width = 0.8, height = 0)) +  # Ensure hollow points
+  #scale_y_continuous(limits = c(-0.0005, 0.0007),
+                     #labels = function(x) x / 1000) +  # Scale y-axis labels back
+  labs(x = "Landscape Position", 
+       y = expression(FCH4~(gCH[4]-C/m^2/s)), 
+       title = "CH4 Flux vs Landscape Position and Inundation") +
+  scale_color_manual(values = c("EC" = "green", "MW" = "blue", "BGC" = "red")) +  # Custom colors
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotated x-axis text
+  facet_wrap(~plot_type, nrow = 1)  # Split plot by 'plot_type' into 3 panels
+
+
+#scatterplot facet wrap looking at land pos, plot type, and inundation 
+ggplot(df_long, aes(x = landscape_position, y = FCH4, 
+                    color = plot_type)) +
+  geom_point(
+             position = position_jitter(width = 0.8, height = 0)) +
+  #scale_y_continuous(limits = c(-0.0005, 0.0007),
+                     #labels = function(x) x / 1000) +
+  labs(x = "Landscape Position", 
+       y = expression(FCH4~(gCH[4]-C/m^2/s)), 
+       title = "CH4 Flux vs Landscape Position and Inundation") +
+  #scale_color_manual(values = c("EC" = "green", "MW" = "blue", "BGC" = "red")) +
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.spacing = unit(3, "lines")) +  # Add space between facets
+  facet_wrap(~inundated, labeller = "label_both")
+
+
+```
+
+#Methane ranges are very far apart...trying to find a scale that could work for all? 
+```{r}
+summary(df_MW$FCH4) #min = -1.631e-08; max =  2.157e-06 
+summary(df_EC$FCH4) #min = -7.843e-08; max = 6.167e-07 
+summary(df_BGC$FCH4) # min = -8.372e-07; max =  1.260e-05 
+summary(df_NEE_RECO2_GPP$FCH4) #min FCH4 -8.372e-07; max = 1.260e-05 
+```
+
+#Methane figs 
+```{r}
+# EC plot type - FCH4 vs landscape position 
+ggplot(df_long %>% filter(plot_type == "EC"),
+       aes(x = landscape_position, y = FCH4, fill = inundated)) +
+  geom_boxplot() +
+  labs(title = "EC Plots: Methane vs Landscape Position",
+       x = "Landscape Position",
+         y = expression(FCH4~(gCH[4]-C/m^2/s)),
+       fill = "Inundated")+
+   geom_hline(yintercept = 0)+
+  scale_y_continuous(limits = c(-0.00005, 0.000075))+
+ # scale_y_continuous(limits = c(-0.0005, 0.0007),
+                     #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+  theme_minimal()+ 
+  theme(
+   axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))
+
+
+  
+
+# MW plots by landscape position 
+ggplot(df_long %>% filter(plot_type == "MW"),
+       aes(x = landscape_position, y = FCH4, fill = inundated)) +
+  geom_boxplot() +
+  labs(title = "MW Plots: Methane vs Landscape Position",
+       x = "Landscape Position",
+         y = expression(FCH4~(gCH[4]-C/m^2/s)),
+       fill = "Inundated")+
+   geom_hline(yintercept = 0)+
+ # scale_y_continuous(labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+  theme_minimal()+ 
+  theme(
+   axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))
+
+
+# BGC plots by landscape position --> this has a much larger range than EC or MW, so adding a different scale here 
+ggplot(df_long %>% filter(plot_type == "BGC"),
+       aes(x = landscape_position, y = FCH4, fill = inundated)) +
+  geom_boxplot() +
+  labs(title = "BGC Plots: Methane vs Landscape Position",
+       x = "Landscape Position",
+         y = expression(FCH4~(gCH[4]-C/m^2/s)),
+       fill = "Inundated")+
+   geom_hline(yintercept = 0)+
+  #scale_y_continuous(limits = c(-0.0005, 0.0007),
+                    # labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+  theme_minimal()+ 
+  theme(
+   axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))
+
+
+
+# all plot type - FCH4 vs landscape position 
+ggplot(df_long, aes(x = landscape_position, y = FCH4, fill = inundated)) +
+  geom_boxplot() +
+  labs(title = "EC Plots: Methane vs Landscape Position",
+       x = "Landscape Position",
+         y = expression("FCH4 (" * mu * "mol" ~ CH[4]-C*m^-2*s^-1),
+       #y = expression("Flux Value (" * mu * "mol " ~ m^-2 * s^-1 * ")"),
+       fill = "Inundated")+
+   geom_hline(yintercept = 0)+
+  #scale_y_continuous(limits = c(-0.00005, 0.000075))+
+ # scale_y_continuous(limits = c(-0.0005, 0.0007),
+                     #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+  theme_bw()+ 
+  theme(
+   axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))+
+  facet_wrap(vars(plot_type), scales = "free_x")
+```
+#Methane figs with avg 
+
+```{r}
+#EC plot methane - little bit different, grouping by land pos and inundation 
+
+ggplot(df_long %>% filter(plot_type == "EC"),
+       aes(x = landscape_position, y = FCH4, fill = inundated)) +
+  geom_boxplot(position = position_dodge(width = 0.8)) +  # Adjust width for dodging the boxes
+  # stat_summary(
+  #   fun = mean,   # Calculate the mean
+  #   geom = "point",  # Add a point at the mean
+  #   shape = 5,    # Hollow diamond shape
+  #   size = 3,     # Adjust size for visibility
+  #   stroke = 1,
+  #   color = "black",  # Color for the mean points
+  #   position = position_dodge(width = 0.8),  # Dodge the diamond to align with the boxes
+  #   aes(group = interaction(landscape_position, inundated))  # Group by both landscape_position and inundated
+  # ) +
+  labs(title = "EC Plots: Methane vs Landscape Position and Inundation",
+       x = "Landscape Position",
+       y = expression(FCH4~(gCH[4]-C/m^2/s)),
+       fill = "Inundated")+
+  geom_hline(yintercept = 0) +
+  scale_y_continuous(limits = c(-0.0000003, 0.0000025))+
+                     #labels = function(x) x / 1000) +  # Scale y-axis labels back
+  theme_minimal() + 
+  theme(
+    axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"),  # Adjust size for x-axis text
+    axis.title.y = element_text(size = 14),
+    axis.text.y = element_text(size = 12, face = "bold"))
+
+
+#MW plot methane - little bit different, grouping by land pos and inundation
+#all lowland plots were inundated, all upland plots were not 
+
+ggplot(df_long %>% filter(plot_type == "MW"),
+       aes(x = landscape_position, y = FCH4, fill = inundated)) +
+  geom_boxplot(position = position_dodge(width = 0.8)) +  # Adjust width for dodging the boxes
+  # stat_summary(
+  #   fun = mean,   # Calculate the mean
+  #   geom = "point",  # Add a point at the mean
+  #   shape = 5,    # Hollow diamond shape
+  #   size = 3,     # Adjust size for visibility
+  #   stroke = 1,
+  #   color = "black",  # Color for the mean points
+  #   position = position_dodge(width = 0.8),  # Dodge the diamond to align with the boxes
+  #   aes(group = interaction(landscape_position, inundated))  # Group by both landscape_position and inundated
+  # ) +
+  labs(title = "MW Plots: Methane vs Landscape Position and Inundation",
+       x = "Landscape Position",
+       y = expression(FCH4~(gCH[4]-C/m^2/s)),
+       fill = "Inundated")+
+  geom_hline(yintercept = 0) +
+    scale_y_continuous(limits = c(-0.0000003, 0.0000025))+
+                    # labels = function(x) x / 1000) +  # Scale y-axis labels back
+  theme_minimal() + 
+  theme(
+    axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"),  # Adjust size for x-axis text
+    axis.title.y = element_text(size = 14),
+    axis.text.y = element_text(size = 12, face = "bold")
+  )
+
+
+#BGC plot methane - little bit different, grouping by land pos and inundation 
+
+ggplot(df_long %>% filter(plot_type == "BGC"),
+       aes(x = landscape_position, y = FCH4, fill = inundated)) +
+  geom_boxplot(position = position_dodge(width = 0.8)) +  # Adjust width for dodging the boxes
+  # stat_summary(
+  #   fun = mean,   # Calculate the mean
+  #   geom = "point",  # Add a point at the mean
+  #   shape = 5,    # Hollow diamond shape
+  #   size = 3,     # Adjust size for visibility
+  #   stroke = 1,
+  #   color = "black",  # Color for the mean points
+  #   position = position_dodge(width = 0.8),  # Dodge the diamond to align with the boxes
+  #   aes(group = interaction(landscape_position, inundated))  # Group by both landscape_position and inundated
+  # ) +
+  labs(title = "BGC Plots: Methane vs Landscape Position and Inundation",
+       x = "Landscape Position",
+       y = expression(FCH4~(gCH[4]-C/m^2/s)),
+       fill = "Inundated")+
+  geom_hline(yintercept = 0) +
+   scale_y_continuous(limits = c(-0.0000003, 0.000008))+
+                     #labels = function(x) x / 1000) +  # Scale y-axis labels back
+  theme_minimal() + 
+  theme(
+    axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"),  # Adjust size for x-axis text
+    axis.title.y = element_text(size = 14),
+    axis.text.y = element_text(size = 12, face = "bold")
+  )
+
+#overall
+
+ggplot(df_long,
+       aes(x = landscape_position, y = FCH4, fill = plot_type)) +
+  geom_boxplot(position = position_dodge(width = 0.8)) +  # Adjust width for dodging the boxes
+  # stat_summary(
+  #   fun = mean,   # Calculate the mean
+  #   geom = "point",  # Add a point at the mean
+  #   shape = 5,    # Hollow diamond shape
+  #   size = 3,     # Adjust size for visibility
+  #   stroke = 1,
+  #   color = "black",  # Color for the mean points
+  #   position = position_dodge(width = 0.8),  # Dodge the diamond to align with the boxes
+  #   aes(group = interaction(landscape_position, plot_type))  # Group by both landscape_position and plot type
+  # ) +
+  labs(title = "Methane vs Landscape Position and Plot Type",
+       x = "Landscape Position",
+       y = expression(FCH4~(gCH[4]-C/m^2/s)),
+       fill = "Plot Type")+
+  geom_hline(yintercept = 0) +
+  scale_y_continuous(limits = c(-0.00000005, 0.0000008))+
+                     #labels = function(x) x / 1000) +  # Scale y-axis labels back
+  theme_minimal() + 
+  theme(
+    axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"),  # Adjust size for x-axis text
+    axis.title.y = element_text(size = 14),
+    axis.text.y = element_text(size = 12, face = "bold"))
+
+
+ggplot(data = df_MW, aes (x=landscape_position, y = FCH4)) + geom_boxplot()
+
+
+
+# all plot type - FCH4 vs landscape position 
+ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1/12 * 1000000), fill = inundated)) +
+  geom_boxplot() +
+  labs(title = "Methane Fluxes within Plot Type vs Landscape Position and Inundation",
+       x = "Landscape Position",
+         #y = expression(Methane~Flux~(gCH[4]-C/m^2/s)),
+        y = expression(FCH[4]~"(" * mu * "mol" ~ CH[4]-C~m^-2~s^-1),
+       fill = "Inundated")+
+   geom_hline(yintercept = 0)+
+  #scale_y_continuous(limits = c(-0.00005, 0.000075))+
+ # scale_y_continuous(limits = c(-0.0005, 0.0007),
+                     #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+  theme_bw()+ 
+  theme(
+   axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))+
+  facet_wrap(vars(plot_type), scales = "free_x")
+
+```
+
+#Temp relationships 
+```{r}
+
+#FCH4 and soil temp 
+ggplot(df_NEE_RECO2_GPP, aes(x=soil_temp_10_cm, y = FCH4*1000)) + geom_point()
+
+FCH4.temp <- lm(FCH4 ~ soil_temp_10_cm, data = df_NEE_RECO2_GPP)
+summary(FCH4.temp) #R2 = 0.05, p = 0.002
+#extract R2 and p value for slope 
+r2 <- summary(FCH4.temp)$r.squared
+p_value <- summary(FCH4.temp)$coefficients[2, 4]
+#plot 
+ggplot(df_NEE_RECO2_GPP, aes(x = soil_temp_10_cm, y = FCH4)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +  # Add regression line
+  annotate("text", x = 0, 
+           y = 0, 
+           label = paste("R² = ", round(r2, 2), "\n", 
+                         "p = ", signif(p_value, 3)), 
+           hjust = 0, size = 5) +
+  labs(x = "Soil Temperature (10 cm)", y = "FCH4",
+       title = "Relationship between FCH4 and Soil Temperature") +
+  theme_minimal()
+
+
+
+#NEE and soil temp 
+ggplot(df_NEE, aes(x=soil_temp_10_cm, y = flux_value )) + geom_point()
+
+NEE.temp <- lm(flux_value ~ soil_temp_10_cm, data = df_NEE)
+summary(FCH4.temp) #R2 = 0.01, p = 0.2
+#extract R2 and p value for slope 
+r2 <- summary(NEE.temp)$r.squared
+p_value <- summary(NEE.temp)$coefficients[2, 4]
+#plot 
+ggplot(df_NEE, aes(x = soil_temp_10_cm, y = flux_value)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +  # Add regression line
+  annotate("text", x = 0, 
+           y = 0, 
+           label = paste("R² = ", round(r2, 2), "\n", 
+                         "p = ", signif(p_value, 3)), 
+           hjust = 0, size = 5) +
+  labs(x = "Soil Temperature (10 cm)", y = "NEE",
+       title = "Relationship between NEE and Soil Temperature") +
+  theme_minimal()
+
+
+
+
+#GPP and soil temp 
+ggplot(df_GPP, aes(x=soil_temp_10_cm, y = flux_value )) + geom_point()
+
+GPP.temp <- lm(flux_value ~ soil_temp_10_cm, data = df_GPP)
+summary(FCH4.temp) #R2 = 0.02, p = 0.05
+#extract R2 and p value for slope 
+r2 <- summary(GPP.temp)$r.squared
+p_value <- summary(GPP.temp)$coefficients[2, 4]
+#plot 
+ggplot(df_GPP, aes(x = soil_temp_10_cm, y = flux_value)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +  # Add regression line
+  annotate("text", x = 0, 
+           y = 0, 
+           label = paste("R² = ", round(r2, 2), "\n", 
+                         "p = ", signif(p_value, 3)), 
+           hjust = 0, size = 5) +
+  labs(x = "Soil Temperature (10 cm)", y = "GPP",
+       title = "Relationship between GPP and Soil Temperature") +
+  theme_minimal()
+
+
+
+
+#RECO and soil temp 
+ggplot(df_RECO, aes(x=soil_temp_10_cm, y = flux_value )) + geom_point()
+
+RECO.temp <- lm(flux_value ~ soil_temp_10_cm, data = df_RECO)
+summary(FCH4.temp) #R2 = 0.18, p = <0.001
+#extract R2 and p value for slope 
+r2 <- summary(RECO.temp)$r.squared
+p_value <- summary(RECO.temp)$coefficients[2, 4]
+#plot 
+ggplot(df_RECO, aes(x = soil_temp_10_cm, y = flux_value)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +  # Add regression line
+  annotate("text", x = 0, 
+           y = 0, 
+           label = paste("R² = ", round(r2, 2), "\n", 
+                         "p = ", signif(p_value, 3)), 
+           hjust = 0, size = 5) +
+  labs(x = "Soil Temperature (10 cm)", y = "RECO",
+       title = "Relationship between RECO and Soil Temperature") +
+  theme_minimal()
+
+```
+
+#AGU figs
+```{r}
+#looking at FCH4 (in g/m2/s) by landscape position and plot type, facet wrapped 
+ggplot(df_long,
+       aes(x=landscape_position, y = (FCH4 *1/12 * 1000000), fill = plot_type))+
+  geom_boxplot()+
+  labs( title = "Methane Fluxes within Plot Type vs Landscape Position ",
+        x = "Landscape Position",
+          #y = expression(Methane~Flux~(gCH[4]-C/m^2/s)),
+        y = expression(FCH[4]~"(" * mu * "mol" ~ CH[4]-C~m^-2~s^-1),
+          fill = "Plot Type")+
+  geom_hline(yintercept=0)+
+  #geom_hline(yintercept = 0.007)+
+  #theme_minimal() +
+  theme_bw()+
+ scale_y_continuous(limits = c(-0.15,0.15), #cut out a few bit outliers here to show trend better, 0.25 looks good but still mutes trends 
+  breaks = seq(-0.15, 0.15, 0.1))+
+                      #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+    theme(
+   axis.title.x = element_text(size = 14),  
+    axis.text.x = element_text(size = 12, face = "bold"), 
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold")) +
+   #facet_wrap(~plot_type, labeller = "label_both")
+  facet_wrap(vars(plot_type), scales = "free_x")
+
+
+# all plot type - FCH4 vs landscape position & inundation 
+ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1/12 * 1000000), fill = inundated)) +
+  geom_boxplot() +
+  labs(title = "Methane Fluxes within Plot Type vs Landscape Position and Inundation",
+       x = "Landscape Position",
+         #y = expression(Methane~Flux~(gCH[4]-C/m^2/s)),
+        y = expression(FCH[4]~"(" * mu * "mol" ~ CH[4]-C~m^-2~s^-1),
+       fill = "Inundated")+
+   geom_hline(yintercept = 0)+
+ scale_y_continuous(limits = c(-0.15,0.46), #cut out a few bit outliers here to show trend better, -0.25 and 0.5 looks good but trying others 
+  breaks = seq(-0.15, 0.46, 0.15))+
+                     #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+  theme_bw()+ 
+  theme(
+   axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))+
+  facet_wrap(vars(plot_type), scales = "free_x")
+```
+
+
