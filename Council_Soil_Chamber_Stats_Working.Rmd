@@ -47,13 +47,14 @@ library(lme4)
 
 #Load filtered and merged df of soil chamber fluxes, moisture, temp (I upload multiples but only using df_NEE_RECO2 and df_NEE_RECO2_GPP for analysis below)
 ```{r}
-#filtered for p<0.05; units umol/m2/s or nmol/m2/s
-df_soilchambers_filtered = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_filtered_soil_chamber_fluxes_2017to2019.csv')
-
-#fluxes and moisture/temp df merged; FCO2 in units g/m2/s
-df_fulljoin = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+# #filtered for p<0.05; units umol/m2/s or nmol/m2/s
+# df_soilchambers_filtered = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_filtered_soil_chamber_fluxes_2017to2019.csv')
+# 
+# #fluxes and moisture/temp df merged; FCO2 in units g/m2/s
+# df_fulljoin = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
 
 # *****************Use these two, above are just extra if needed for looking at*********************
+
 #used transparent and opaque chambers to identify NEE and RECO, then merged back together 
 df_NEE_RECO2 = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
 
@@ -159,9 +160,9 @@ df_BGClong <- df_BGClong %>% arrange(flux_type)
 ```
 
 
-#Variance spread in data
+#Variance for each flux by landscape position, plot type, and inundated (y/n)
 
-####Spread in dataset - NEE
+####NEE - boxplots of variance 
 
 ```{r}
 library(dplyr)
@@ -194,15 +195,10 @@ ggplot(df_NEE, aes(x = soil_temp_10_cm, y = flux_value)) +
 #also very little spread 
 
 ```
-####Spread in Variance among diff variables - NEE
+####NEE - Variance and normality
 
 ```{r}
 # Calculate variance within groups
-
-#exclude NA --> edited to be done beforehand in code chunks above 
-# sum(is.na(df_NEE$flux_value)) #flux val has 0 NAs; inundated has 2
-# df_NEE.c1 <- df_NEE[complete.cases(df_NEE[, c("inundated")]), ]
-
 
 #Flux and landscape pos
 df_variance_landpos <- df_NEE %>%
@@ -237,7 +233,7 @@ ggplot(df_variance_plottype, aes(x = plot_type, y = variance)) +
 
 #Flux and inundated 
 #dropped NAs in inundated
-df_variance_inundated <- df_NEE.c1 %>%
+df_variance_inundated <- df_NEE %>%
   group_by(inundated) %>%
   summarize(variance = var(flux_value, na.rm = TRUE))
 
@@ -253,23 +249,87 @@ ggplot(df_variance_inundated, aes(x = inundated, y = variance)) +
 #higher variance in inundated plots 
 
 
-# Shapiro-Wilk test for normality
+# Shapiro-Wilk test for normality across entire dataset
 shapiro_test <- shapiro.test(df_NEE$flux_value)
 print(shapiro_test) #lower than 0.05, so does deviate from normality 
 
-# Q-Q plot
+
+# Test normality within each landscape position
+df_NEE %>%
+  group_by(landscape_position) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: lowland = no, slope = yes, upland = no
+
+# Test normality within each plot type
+df_NEE %>%
+  group_by(plot_type) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: BGC = no, EC = yes, MW =no
+
+# Test normality based on inundated
+df_NEE %>%
+  group_by(inundated) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: N= no, Y = no
+
+
+# Q-Q plot of full dataset 
 qqnorm(df_NEE$flux_value)
 qqline(df_NEE$flux_value, col = "red")
 
+
+#histograms with density curves by landscape position
+ggplot(df_NEE, aes(x = flux_value, fill = landscape_position)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~landscape_position) +
+  theme_minimal() +
+  labs(title = "Distribution of NEE by Landscape Position")
+
+# histograms with density curves by plot type
+ggplot(df_NEE, aes(x = flux_value, fill = plot_type)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~plot_type) +
+  theme_minimal() +
+  labs(title = "Distribution of NEE by Plot Type")
+
+
+# histograms with density curves by plot type
+ggplot(df_NEE, aes(x = flux_value, fill = inundated)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~inundated) +
+  theme_minimal() +
+  labs(title = "Distribution of NEE by Inundation")
+
+
 #homogeneity of variance - levene's test
-# p > 0.05: Variances are homogenous (no significant difference between variances).
-# p ≤ 0.05: Variances are not homogenous.
+# p > 0.05: Variances are homogeneous (no significant difference between variances).
+# p ≤ 0.05: Variances are not homogeneous.
 library(car)
-leveneTest(flux_value ~ landscape_position, data = df_NEE)
-#p=0.43, homogeneity of var is ok
+
+# Test homogeneity of variance for all main factors
+leveneTest(flux_value ~ landscape_position, data = df_NEE) #p=0.43, homogeneity of var is ok
+leveneTest(flux_value ~ plot_type, data = df_NEE) #p=0.53, ok
+leveneTest(flux_value ~ inundated, data = df_NEE)#p = 0.7, ok
+
+#for interactions
+leveneTest(flux_value ~ landscape_position * plot_type, data = df_NEE) #p=0.7, ok
+leveneTest(flux_value ~ landscape_position * inundated, data = df_NEE) #p=0.8, ok
+leveneTest(flux_value ~ plot_type * inundated, data = df_NEE) #p=0.6, ok
 
 ```
-####Spread in dataset - GPP
+####GPP - boxplots of variance
 
 ```{r}
 library(dplyr)
@@ -303,7 +363,7 @@ ggplot(df_GPP, aes(x = soil_temp_10_cm, y = flux_value)) +
 
 ```
 
-####Spread in Variance among diff variables - GPP
+####GPP - Variance and Normality 
 
 ```{r}
 # Calculate variance within groups
@@ -365,21 +425,83 @@ ggplot(df_variance_inundated, aes(x = inundated, y = variance)) +
 
 # Shapiro-Wilk test for normality
 shapiro_test <- shapiro.test(df_GPP$flux_value)
-print(shapiro_test) #lower than 0.05, so does deviate from normality 
+print(shapiro_test) #lower than 0.05, so does deviate from normality
+
+
+# Test normality within each landscape position
+df_GPP %>%
+  group_by(landscape_position) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: lowland = no, slope = yes, upland = no
+
+# Test normality within each plot type
+df_GPP %>%
+  group_by(plot_type) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: BGC = no, EC = no, MW =no
+
+# Test normality based on inundated
+df_GPP %>%
+  group_by(inundated) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: N= no, Y = yes
+
+
+#histograms with density curves by landscape position
+ggplot(df_GPP, aes(x = flux_value, fill = landscape_position)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~landscape_position) +
+  theme_minimal() +
+  labs(title = "Distribution of GPP by Landscape Position")
+
+# histograms with density curves by plot type
+ggplot(df_GPP, aes(x = flux_value, fill = plot_type)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~plot_type) +
+  theme_minimal() +
+  labs(title = "Distribution of GPP by Plot Type")
+
+
+# histograms with density curves by plot type
+ggplot(df_GPP, aes(x = flux_value, fill = inundated)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~inundated) +
+  theme_minimal() +
+  labs(title = "Distribution of GPP by Inundation")
 
 # Q-Q plot
 qqnorm(df_GPP$flux_value)
 qqline(df_GPP$flux_value, col = "red")
 
 #homogeneity of variance - levene's test
-# p > 0.05: Variances are homogenous (no significant difference between variances).
-# p ≤ 0.05: Variances are not homogenous.
+# p > 0.05: Variances are homogeneous (no significant difference between variances).
+# p ≤ 0.05: Variances are not homogeneous.
 library(car)
-leveneTest(flux_value ~ landscape_position, data = df_GPP)
-#p=0.68, homogeneity of var is ok
+
+# Test homogeneity of variance for all main factors
+leveneTest(flux_value ~ landscape_position, data = df_GPP) #p=0.68, homogeneity of var is ok
+leveneTest(flux_value ~ plot_type, data = df_GPP) #p=0.67 = ok
+leveneTest(flux_value ~ inundated, data = df_GPP) #p=0.41 = ok
+
+# And for interactions
+leveneTest(flux_value ~ landscape_position * plot_type, data = df_GPP) #p=0.76
+leveneTest(flux_value ~ landscape_position * inundated, data = df_GPP) #p=0.69
+leveneTest(flux_value ~ inundated * plot_type, data = df_GPP) #p=0.86
 
 ```
-####Spread in dataset - RECO
+####RECO - boxplots of variance
 
 ```{r}
 library(dplyr)
@@ -413,7 +535,7 @@ ggplot(df_RECO, aes(x = soil_temp_10_cm, y = flux_value)) +
 
 ```
 
-####Spread in Variance among diff variables - RECO
+####RECO - Variance and normality 
 
 ```{r}
 # Calculate variance within groups
@@ -477,6 +599,62 @@ ggplot(df_variance_inundated, aes(x = inundated, y = variance)) +
 shapiro_test <- shapiro.test(df_RECO$flux_value)
 print(shapiro_test) #lower than 0.05, so does deviate from normality 
 
+
+# Test normality within each landscape position
+df_RECO %>%
+  group_by(landscape_position) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: lowland = no, slope = yes, upland = no
+
+# Test normality within each plot type
+df_RECO %>%
+  group_by(plot_type) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: BGC = no, EC = no, MW =no
+
+# Test normality based on inundated
+df_RECO %>%
+  group_by(inundated) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: N= no, Y = yes
+
+
+#histograms with density curves by landscape position
+ggplot(df_RECO, aes(x = flux_value, fill = landscape_position)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~landscape_position) +
+  theme_minimal() +
+  labs(title = "Distribution of RECO by Landscape Position")
+
+# histograms with density curves by plot type
+ggplot(df_RECO, aes(x = flux_value, fill = plot_type)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~plot_type) +
+  theme_minimal() +
+  labs(title = "Distribution of RECO by Plot Type")
+
+
+# histograms with density curves by plot type
+ggplot(df_RECO, aes(x = flux_value, fill = inundated)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~inundated) +
+  theme_minimal() +
+  labs(title = "Distribution of RECO by Inundation")
+
+
+
 # Q-Q plot
 qqnorm(df_RECO$flux_value)
 qqline(df_RECO$flux_value, col = "red") #bows upward at both ends
@@ -485,8 +663,16 @@ qqline(df_RECO$flux_value, col = "red") #bows upward at both ends
 # p > 0.05: Variances are homogeneous (no significant difference between variances).
 # p ≤ 0.05: Variances are not homogeneous.
 library(car)
-leveneTest(flux_value ~ landscape_position, data = df_RECO)
-#p=0.78, homogeneity of var is ok
+
+# Test homogeneity of variance for all main factors
+leveneTest(flux_value ~ landscape_position, data = df_RECO) #p=0.81, homogeneity of var is ok
+leveneTest(flux_value ~ plot_type, data = df_RECO) #p=0.39 = ok
+leveneTest(flux_value ~ inundated, data = df_RECO) #p=0.62 = ok
+
+# And for interactions
+leveneTest(flux_value ~ landscape_position * plot_type, data = df_RECO) #p=0.58
+leveneTest(flux_value ~ landscape_position * inundated, data = df_RECO) #p=0.84
+leveneTest(flux_value ~ inundated * plot_type, data = df_RECO) #p=0.51
 
 ```
 
@@ -496,14 +682,12 @@ leveneTest(flux_value ~ landscape_position, data = df_RECO)
 
 #NEE
 
-#df_NEE: Testing df_NEE models 
+#df_NEE: Testing df_NEE models  **TO DO: need to re-run with complete cases for appropriate model comparison*
 
 ```{r}
-
 #Testing parameters in df_NEE as a whole  - using Kyle's "fluxes" code as guide 
 
 #Make plot_ID, inundated, plot_type, landscape_position as factor so they'll work with gls
-
 df_NEE$plot_ID = factor(df_NEE$plot_ID)
 df_NEE$plot_type = factor (df_NEE$plot_type)
 df_NEE$landscape_position = factor(df_NEE$landscape_position)
@@ -612,20 +796,19 @@ anova(var.NEE.all) #all variables sig except inundated
 
 #testing all multiple var models 
 anova(var.NEE.plottype.inun, var.NEE.all) #NEE.all is better fit, sig 
-anova(var.NEE.landpos.inun, var.NEE.landpos.plottype, var.NEE.plottype.inun, var.NEE.all) #sig diff, NEE.plottype.inun has slightly lower AIC/BIC, higher logLik --> seems to fit best, though NEE.all very close to being the same as NEE.plottype.inun
+anova(var.NEE.landpos.inun, var.NEE.landpos.plottype, var.NEE.plottype.inun, var.NEE.all) #sig diff, NEE.landpos.plottype has slightly lower AIC/BIC, higher logLik --> seems to fit best, though NEE.all very close
 
 #testing multiple var models with single var models 
-anova(gls.NEE, var.NEE.plottype.inun, var.NEE.inundated, var.NEE.landpos, var.NEE.plottype)
-#NEE.plottype.inun has lowest AIC/BIC, highest logLik so it appears to be better model 
+anova(gls.NEE, var.NEE.plottype.inun, var.NEE.landpos.plottype, var.NEE.inundated, var.NEE.landpos, var.NEE.plottype)
 
 
 #looking at fixed effects with selected model of var.NEE.plottype.inun 
-anova(var.NEE.plottype.inun, type = "marginal") # soil temp (p<0.04) is sig
+anova(var.NEE.landpos.plottype, type = "marginal") # soil temp (p=0.03) is sig
 
 
 #refit with REML
-NEE.final = update(var.NEE.plottype.inun, method = "REML")
-anova(NEE.final) #plottype marginal (p=0.049), landscape pos (p=0.006) and soil temp (p=0.046) are sig 
+NEE.final = update(var.NEE.landpos.plottype, method = "REML")
+anova(NEE.final) #plottype marginal (p=0.029), landscape pos (p=0.009) and soil temp (p=0.04) are sig 
 
 
 #checking colinearity 
@@ -675,6 +858,187 @@ qqnorm(residuals(NEE.final))
 hist(residuals(NEE.final)) #shows a bit of left skew
 car::qqPlot(x = residuals(NEE.final)) #shows where residuals breach normal distr
 ```
+#testing models with help from claude, just one more time to make sure*
+```{r}
+# Base models with and without random effects
+
+# Original rows
+nrow(df_NEE) #186
+
+# Rows in complete cases only
+sum(complete.cases(df_NEE[, c("flux_value", "landscape_position", "plot_type", "inundated", "soil_temp_10_cm")])) #176
+
+df_NEE_cc <- df_NEE %>% drop_na(flux_value, landscape_position, plot_type, inundated, soil_temp_10_cm)
+
+
+
+base_gls <- gls(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm, 
+                data = df_NEE_cc, method = "REML")
+
+base_lme <- lme(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm, 
+                random = ~1|plot_ID, 
+                data = df_NEE_cc, method = "REML")
+
+# Compare with likelihood ratio test
+anova(base_gls, base_lme)
+#random effect doesn't improve model -- continue with gls and no plot_ID
+```
+#testing models with help from Claude to be sure
+```{r}
+library(nlme)
+
+# Base model with homogeneous variance
+model_homo <- gls(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm, 
+                 data = df_NEE_cc, method = "REML", na.action = na.omit)
+
+# Variance by landscape position
+model_var_landpos <- gls(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm, 
+                        weights = varIdent(form = ~1|landscape_position), 
+                        data = df_NEE_cc, method = "REML", na.action = na.omit)
+
+# Variance by plot type
+model_var_plottype <- gls(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm, 
+                         weights = varIdent(form = ~1|plot_type), 
+                         data = df_NEE_cc, method = "REML", na.action = na.omit)
+
+# Variance by inundation
+model_var_inundated <- gls(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm, 
+                          weights = varIdent(form = ~1|inundated), 
+                          data = df_NEE_cc, method = "REML", na.action = na.omit)
+
+# Variance structure by soil temperature (for continuous variable)
+model_var_soiltemp <- gls(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm, 
+                         weights = varPower(form = ~soil_temp_10_cm), 
+                         data = df_NEE_cc, method = "REML", na.action = na.omit)
+
+# Compare all variance structure models using AIC/BIC
+models_list <- list(Homogeneous = model_homo, 
+                   Landscape = model_var_landpos,
+                   PlotType = model_var_plottype,
+                   Inundated = model_var_inundated,
+                   SoilTemp = model_var_soiltemp)
+
+# Extract AIC and BIC
+variance_comparison <- data.frame(
+  Model = names(models_list),
+  AIC = sapply(models_list, AIC),
+  BIC = sapply(models_list, BIC)
+)
+
+# Sort by AIC
+variance_comparison <- variance_comparison[order(variance_comparison$AIC),]
+print(variance_comparison)
+
+# Likelihood ratio tests where appropriate (nested models)
+anova(model_homo, model_var_landpos)
+anova(model_homo, model_var_plottype)
+anova(model_homo, model_var_inundated)
+anova(model_homo, model_var_soiltemp)
+
+#Results: all models except inun have p<0.05 showing sig improvement 
+	
+# Model     
+# PlotType	-3170.270	-3138.971	 **best fit due to lowest AIC/BIC and highest L ratio
+# Landscape	-3159.802	-3128.503	
+# SoilTemp	-3150.105	-3121.936	
+# Inundated	-3149.284	-3121.115	
+# Homogeneous	-3147.913	-3122.874	
+
+#Indicates that variance in NEE differs significantly among plot_types, so plot_type should be a var structure 
+
+
+```
+#testing models with claude just to check - fixed effects structure 
+```{r}
+# switch to ML for fixed effects comparison
+best_var_structure <- varIdent(form = ~1|plot_type)  # Change this based on your results
+
+# Full model with all main effects
+model_full <- gls(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm, 
+                 weights = best_var_structure,
+                 data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+# Model with interactions between landscape_position and inundation
+model_interact1 <- gls(flux_value ~ landscape_position * inundated + plot_type + soil_temp_10_cm, 
+                      weights = best_var_structure,
+                      data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+# Reduced models (removing one predictor at a time)
+model_no_soil <- gls(flux_value ~ landscape_position + plot_type + inundated, 
+                    weights = best_var_structure,
+                    data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+model_no_inund <- gls(flux_value ~ landscape_position + plot_type + soil_temp_10_cm, 
+                     weights = best_var_structure,
+                     data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+model_no_landpos <- gls(flux_value ~ plot_type + inundated + soil_temp_10_cm, 
+                       weights = best_var_structure,
+                       data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+model_no_plottype <- gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm, 
+                        weights = best_var_structure,
+                        data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+#inundation and plot type 
+var.NEE.plottype.inun = update(gls.NEE, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | plot_type)))
+anova(var.NEE.plottype.inun) #shows sig diff in landpos (p=0.004), soil temp (p=0.04), and marginally plot type (0.05) 
+
+
+# Compare fixed effects models
+fixed_models <- list(Full = model_full, 
+                    Interaction = model_interact1,
+                    No_SoilTemp = model_no_soil,
+                    No_Inundated = model_no_inund,
+                    No_Landscape = model_no_landpos,
+                    No_PlotType = model_no_plottype,
+                    plottype_inun = var.NEE.plottype.inun,
+                    landpos_inun = var.NEE.landpos.inun,
+                    landpos_plottype = var.NEE.landpos.plottype,
+                    var_all = var.NEE.all
+                    )
+
+
+
+
+# Extract AIC and BIC
+fixed_comparison <- data.frame(
+  Model = names(fixed_models),
+  AIC = sapply(fixed_models, AIC),
+  BIC = sapply(fixed_models, BIC)
+)
+
+# Sort by AIC
+fixed_comparison <- fixed_comparison[order(fixed_comparison$AIC),]
+print(fixed_comparison)
+
+# comparing models without variables to full model with all variables 
+anova(model_full, model_no_soil)    # Is soil_temp significant? --> p=0.05, so maybe?
+anova(model_full, model_no_inund)   # Is inundated significant? --> no sig diff
+anova(model_full, model_no_landpos) # Is landscape_position significant? --> no sig diff
+anova(model_full, model_no_plottype) # Is plot_type significant? --> no sig diff
+anova(model_full, model_interact1)  # Does the interaction improve the model?
+anova(model_full, var.NEE.plottype.inun) #--> sig diff*
+anova(model_full, model_no_inund, var.NEE.landpos.inun, var.NEE.landpos.plottype, var.NEE.plottype.inun, var.NEE.all)  #Results: the var.NEE.landpos.plottype model performs the best, uses var structure for both land_pos and plottype --> final model for GPP 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #GPP
 
@@ -998,6 +1362,8 @@ summary(RECO.final)
 #slope and BGC plottype not showing up in the summary or stats....? or am I reading this wrong?
 
 ```
+
+
 ```{r}
 #Tukey
 library(lsmeans)
