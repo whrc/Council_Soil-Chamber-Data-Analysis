@@ -1,0 +1,890 @@
+---
+title: "Council_Soil_Chamber_NEE_statsmodels" #working on finding the best stats model for analyzing NEE from soil chamber data -- taken from Soil_Chamber_Stats_Working 
+output: html_document
+date: "2025-03-06"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load libraries 
+```{r, include=FALSE}
+rm(list= ls())
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(openair)
+library(plotrix)
+library(signal)
+library(svMisc)
+library(zoo)
+library(stringr)
+library(plyr)
+library(viridis)
+library(lubridate)
+library(tidyverse)
+library(gridExtra)
+library(plotly)
+library(RColorBrewer)
+library(pracma)
+library(dplyr)
+library(openair)
+library(nlme)
+library(lme4)
+
+```
+
+#Load filtered and merged df of soil chamber fluxes, moisture, temp (I upload multiples but only using df_NEE_RECO2 and df_NEE_RECO2_GPP for analysis below)
+```{r}
+# #filtered for p<0.05; units umol/m2/s or nmol/m2/s
+# df_soilchambers_filtered = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_filtered_soil_chamber_fluxes_2017to2019.csv')
+# 
+# #fluxes and moisture/temp df merged; FCO2 in units g/m2/s
+# df_fulljoin = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+# *****************Use these two, above are just extra if needed for looking at*********************
+
+#used transparent and opaque chambers to identify NEE and RECO, then merged back together 
+df_NEE_RECO2 = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+#calculated GPP (NEE - Reco)
+df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_NEE_RECO2_GPP_2017to2019.csv')
+
+
+```
+
+
+#Re-shape df into long format 
+```{r}
+library(tidyr)
+
+#Remove the NAs from inundation 
+library(dplyr)
+df_NEE_RECO2_GPP<- df_NEE_RECO2_GPP %>%
+   filter(!is.na(inundated))
+
+
+# Reshape the dataframe to long format, choose variables of interest 
+df_long <- df_NEE_RECO2_GPP %>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, time, date, VWC, air_temp, flux_CO2, flux_CH4, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm, thawdepth) %>%
+  pivot_longer(cols = c(NEE, RECO, GPP), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+
+```
+
+
+#Filter df by landscape position and flux type (GPP, NEE, RECO)
+
+####Create new df for each plot type for analysis 
+```{r}
+#Filter & make separate datasets for each plot_ID = "EC" "MW" and "BGC", and by flux type (GPP, NEE, RECO)
+
+#EC - eddy covar tower plot types 
+df_EClong <- df_long %>%
+  filter(plot_type == "EC")
+
+#MW - moisture warming plot types 
+df_MWlong <- df_long %>%
+  filter(plot_type == "MW")
+
+#BGC - biogeochem plot types 
+df_BGClong <- df_long %>%
+  filter(plot_type == "BGC")
+
+#GPP
+df_GPP <-df_long %>%
+  filter(flux_type == "GPP")
+
+#NEE
+df_NEE <-df_long %>%
+  filter(flux_type == "NEE")
+
+#RECO
+df_RECO <-df_long %>%
+  filter(flux_type == "RECO")
+
+
+
+#Re-arrange by flux type (NEE, GPP, RECO) so you can analyze more easily 
+
+# Sort the dataframe by the flux_type column 
+df_EClong <- df_EClong %>% arrange(flux_type)
+df_MWlong <- df_MWlong %>% arrange(flux_type)
+df_BGClong <- df_BGClong %>% arrange(flux_type)
+
+```
+
+#Variance for each flux by landscape position, plot type, and inundated (y/n)
+
+####boxplots of variance 
+
+```{r}
+library(dplyr)
+#looking at spread in the datasets
+
+# Boxplots for categorical predictors
+ggplot(df_NEE, aes(x = landscape_position, y = flux_value)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Flux Value by Landscape Position")
+#looks good, very little spread/difference here 
+
+ggplot(df_NEE, aes(x = inundated, y = flux_value)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Flux Value by Inundation")
+#also looks good, very little spread here 
+
+ggplot(df_NEE, aes(x = plot_type, y = flux_value)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Flux Value by Plot Type")
+#also looks good, very little spread 
+
+# Scatterplot for continuous predictor
+ggplot(df_NEE, aes(x = soil_temp_10_cm, y = flux_value)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Flux Value vs Soil Temperature (10 cm)")
+#also very little spread 
+
+```
+
+####Variance 
+```{r}
+# Calculate variance within groups
+
+#Flux and landscape pos
+df_variance_landpos <- df_NEE %>%
+  group_by(landscape_position) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_landpos)
+
+# Variance plot - flux and landscape pos
+ggplot(df_variance_landpos, aes(x = landscape_position, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Landscape Position",
+       y = "Variance")
+#higher variance in upland landscape position than in slope and lowland* 
+
+#Flux and plot type
+df_variance_plottype <- df_NEE %>%
+  group_by(plot_type) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_plottype)
+
+# Variance plot - flux and plot type 
+ggplot(df_variance_plottype, aes(x = plot_type, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Plot Type",
+       y = "Variance")
+#higher variance in BGC
+
+
+#Flux and inundated - dropped 2 NAs in inundated
+df_variance_inundated <- df_NEE %>%
+  group_by(inundated) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_inundated)
+
+# Variance plot - flux and inundated
+ggplot(df_variance_inundated, aes(x = inundated, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Inundation",
+       y = "Variance")
+#higher variance in inundated plots 
+```
+
+#Shapiro-Wilkes tests for normality 
+```{r}
+
+# Shapiro-Wilk test for normality across entire dataset
+shapiro_test <- shapiro.test(df_NEE$flux_value)
+print(shapiro_test) #lower than 0.05, so does deviate from normality 
+
+
+# Test normality within each landscape position
+df_NEE %>%
+  group_by(landscape_position) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: lowland = no, slope = yes, upland = no
+
+# Test normality within each plot type
+df_NEE %>%
+  group_by(plot_type) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: BGC = no, EC = yes, MW =no
+
+# Test normality based on inundated
+df_NEE %>%
+  group_by(inundated) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: N= no, Y = no
+```
+
+#QQplots and histograms
+```{r}
+
+# Q-Q plot of full dataset 
+qqnorm(df_NEE$flux_value)
+qqline(df_NEE$flux_value, col = "red")
+
+
+#histograms with density curves by landscape position
+ggplot(df_NEE, aes(x = flux_value, fill = landscape_position)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~landscape_position) +
+  theme_minimal() +
+  labs(title = "Distribution of NEE by Landscape Position")
+
+# histograms with density curves by plot type
+ggplot(df_NEE, aes(x = flux_value, fill = plot_type)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~plot_type) +
+  theme_minimal() +
+  labs(title = "Distribution of NEE by Plot Type")
+
+
+# histograms with density curves by plot type
+ggplot(df_NEE, aes(x = flux_value, fill = inundated)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~inundated) +
+  theme_minimal() +
+  labs(title = "Distribution of NEE by Inundation")
+```
+
+#Levene's test for homogeneity 
+```{r}
+
+#homogeneity of variance - levene's test
+# p > 0.05: Variances are homogeneous (no significant difference between variances).
+# p ≤ 0.05: Variances are not homogeneous.
+library(car)
+
+# Test homogeneity of variance for all main factors
+leveneTest(flux_value ~ landscape_position, data = df_NEE) #p=0.43, homogeneity of var is ok
+leveneTest(flux_value ~ plot_type, data = df_NEE) #p=0.53, ok
+leveneTest(flux_value ~ inundated, data = df_NEE)#p = 0.7, ok
+
+#for interactions
+leveneTest(flux_value ~ landscape_position * plot_type, data = df_NEE) #p=0.7, ok
+leveneTest(flux_value ~ landscape_position * inundated, data = df_NEE) #p=0.8, ok
+leveneTest(flux_value ~ plot_type * inundated, data = df_NEE) #p=0.6, ok
+
+```
+
+#Testing Models 
+
+
+#NEE
+
+#df_NEE: Testing df_NEE models 
+
+####Create a complete-cases df for the variables being tested to find the optimal model
+####KK note 3/4/25: added in thawdepth and VWC to model 
+```{r}
+#Double check you don't lose too many observations by getting complete cases of the variables listed below. If one variable severely reduces the dataset, maybe exclude it or use diff methods to include that variable 
+
+# Original rows
+nrow(df_NEE) #186
+
+sum(is.na(df_NEE$soil_temp_10_cm)) #VWC has 28 NAs; thaw depth has 8 NAs, soil temp @ 10cm has 10 NAs, inundated has 2 NAs already removed 
+
+# Rows in complete cases only
+sum(complete.cases(df_NEE[, c("flux_value", "landscape_position", "plot_type", "inundated", "soil_temp_10_cm", "VWC", "air_temp", "thawdepth")])) #158 --> so 28 less observations, we can go ahead and subset out complete cases
+
+#use this complete cases dataset for model testing* (can use full dataset for analysis once final model is decided)
+df_NEE_cc <- df_NEE %>% drop_na(flux_value, landscape_position, plot_type, inundated, soil_temp_10_cm, VWC, air_temp, thawdepth)
+```
+
+####Testing whether random effect plot_ID should be included or not 
+```{r}
+#Testing parameters in df_NEE as a whole  - using Kyle's "fluxes" code as guide 
+
+#Make plot_ID, inundated, plot_type, landscape_position as factor so they'll work with gls
+df_NEE_cc$plot_ID = factor(df_NEE_cc$plot_ID)
+df_NEE_cc$plot_type = factor (df_NEE_cc$plot_type)
+df_NEE_cc$landscape_position = factor(df_NEE_cc$landscape_position)
+df_NEE_cc$inundated = factor(df_NEE_cc$inundated)
+#df_NEE$soil_temp_10_cm = as.numeric (df_NEE$soil_temp_10_cm) #use this in case it reads it in as factor or character
+
+#Use ML when comparing models 
+library(nlme)
+#gls - no random effect
+gls.NEE = gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm + thawdepth + VWC, data = df_NEE_cc, method = 'ML') #, na.action=na.exclude) --> don't need, already made dataset with complete cases
+anova(gls.NEE) #this shows no sig diff in NEE among these 
+
+#lme - with random effect of plot_ID
+lme.NEE <- lme(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm + thawdepth + VWC, 
+               random = ~1 | plot_ID, 
+               data = df_NEE_cc, # na.action=na.exclude, --> don't need, already made dataset with complete cases
+               method = 'ML')
+anova(lme.NEE) #shows no sig diff in NEE among these 
+
+#Comparing the models 
+anova(gls.NEE, lme.NEE) #p = 0.99, no improvement to model with random effect - so plot_ID random effect *NOT needed here 
+
+```
+
+####Multicollinearity in model- VIF
+```{r}
+#variance inflation factor (vif) - vif = 1 = variables are not correlated; between 1 & 5 = moderately correlated,  5 or higher indicates highly correlated & multicollinearity among variables. GVIF is a generalized VIF for categorical variables with more than two levels; the adj VIF gives values for comparing across variables with diff degrees of freedom* --> look at both when assessing collinearity in a model 
+library(car)
+vif(gls.NEE) # all variables <2, no impactful multicollinearity 
+```
+
+####Checking each variable on its own 
+```{r}
+#double checking each var on its own 
+
+gls.NEE.landscape = gls(flux_value ~ landscape_position, data = df_NEE_cc, method = 'ML', na.action=na.exclude)
+anova(gls.NEE.landscape) #p=0.13, not sig 
+
+gls.NEE.plottype = gls(flux_value ~ plot_type, data = df_NEE_cc, method = 'ML', na.action=na.exclude)
+anova(gls.NEE.plottype) #p=0.17, not sig 
+
+gls.NEE.inundated = gls(flux_value ~ inundated, data = df_NEE_cc, method = 'ML', na.action=na.exclude)
+anova(gls.NEE.inundated) #p=0.52, not sig 
+
+gls.NEE.soiltemp = gls(flux_value ~ soil_temp_10_cm, data = df_NEE_cc, method = 'ML', na.action=na.exclude)
+anova(gls.NEE.soiltemp) #p=0.27, not sig 
+
+gls.NEE.thawdepth = gls(flux_value ~ thawdepth, data = df_NEE_cc, method = 'ML', na.action=na.exclude)
+anova(gls.NEE.thawdepth) #p=0.47, not sig 
+
+gls.NEE.VWC = gls(flux_value ~ VWC, data = df_NEE_cc, method = 'ML', na.action=na.exclude)
+anova(gls.NEE.VWC) #p=0.29, not sig 
+```
+
+#### Variance Structre Model - NEE cc
+```{r}
+#testing variance structure - using only categorical variables here, not numeric (soil temp, thawdepth, VWC)
+
+#based on inundation
+var.NEE.inundated = update(gls.NEE, weights = varIdent(form = ~1|inundated))
+anova(var.NEE.inundated) #no diffs among variables 
+anova(gls.NEE, var.NEE.inundated) #p = 0.03 SIG but but only slightly lower AIC, lower BIC, and higher LogLik
+
+#based on landscape position
+var.NEE.landpos = update(gls.NEE, weights = varIdent(form = ~1|landscape_position))
+anova(var.NEE.landpos) #no diffs among variables 
+anova(gls.NEE, var.NEE.landpos) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (but only slightly lower AIC, lower BIC, and higher LogLik)
+
+#based on plot type 
+var.NEE.plottype = update(gls.NEE, weights = varIdent(form = ~1|plot_type))
+anova(var.NEE.plottype) #now showing sig diffs for landscape pos (p=<0.04), marginally soil temp (p=0.049)
+anova(gls.NEE, var.NEE.plottype) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (but only slightly lower AIC, lower BIC, and higher LogLik)
+
+
+#now testing which models are best fit 
+anova(var.NEE.inundated, var.NEE.landpos, var.NEE.plottype) #plottype has best AIC/BIC/LogLik
+anova(var.NEE.inundated, var.NEE.landpos) #sig diff, land pos better 
+anova(var.NEE.inundated,var.NEE.plottype) #sig diff, plot type better
+anova(var.NEE.landpos, var.NEE.plottype) #no sig diff 
+```
+
+#### Multiple Var structure - NEE 
+```{R}
+#looking at models with multiple variance structures 
+library(nlme)
+
+#inundation and land pos 
+var.NEE.landpos.inun = update(gls.NEE, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | landscape_position)))
+anova(var.NEE.landpos.inun) #no sig diff among variables 
+
+#inundation and plot type 
+var.NEE.plottype.inun = update(gls.NEE, weights = varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | plot_type)))
+anova(var.NEE.plottype.inun) #shows sig diff in landpos (p=0.004), soil temp (p=0.04)
+
+
+#land pos and plot type 
+var.NEE.landpos.plottype = update(gls.NEE, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)))
+anova(var.NEE.landpos.plottype) #sig diff in landscape position and soil temp p<0.05
+
+
+anova(var.NEE.landpos.inun,var.NEE.plottype.inun) #only slight diff - AIC/BIC lower & logLik higher in plottype.inun
+
+anova(var.NEE.landpos.inun, var.NEE.landpos.plottype, var.NEE.plottype.inun) #appears landpos-plottype is best model of these three, sig diff and notable better AIC/BIC/LogLik
+
+
+#land pos and plot type and inun
+var.NEE.all = update(gls.NEE, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type), varIdent(form = ~1 |inundated)))
+anova(var.NEE.all) #landpos and soil temp sig, p<0.05
+
+#testing all multiple var models 
+anova(var.NEE.plottype.inun, var.NEE.all) #sig diff but only slightly betetr AIc/BIC/LogLik for NEE.all 
+anova(var.NEE.landpos.plottype, var.NEE.all) #no sig diff between the models 
+anova(var.NEE.landpos.inun, var.NEE.landpos.plottype, var.NEE.plottype.inun, var.NEE.all) #sig diff, NEE.landpos.plottype has slightly lower AIC/BIC, very similar to NEE.all, and is the simpler model so probably going to go with landpos.plottype model 
+
+#testing multiple var models with single var models 
+anova(gls.NEE, var.NEE.plottype.inun, var.NEE.landpos.plottype, var.NEE.inundated, var.NEE.landpos, var.NEE.plottype, var.NEE.all, var.NEE.landpos.inun) #landpos.plottype has lowest AIC/BIC, highest LogLik, followed by NEE.all 
+
+
+#looking at fixed effects with selected model of var.NEE.landpos.plottype
+anova(var.NEE.landpos.plottype, type = "marginal") #no sig diffs among variables 
+
+
+#refit with REML
+NEE.final = update(var.NEE.landpos.plottype, method = "REML")
+anova(NEE.final) #landscape pos (p=0.007) and soil temp (p=0.02) are sig 
+
+
+#checking colinearity 
+
+gls.NEE2 = gls(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm + thawdepth + VWC, data = df_NEE_cc, method = 'REML', na.action=na.exclude)
+anova(gls.NEE2) #no sig diffs 
+
+
+library(car)
+vif(NEE.final) #all values except for lanpos <2, and landpos is at 2.2, so multicolinearity is not a major problem here 
+vif(gls.NEE) #all <2, =ok
+vif(gls.NEE2) #all <2
+
+
+#checking final model but in lme form to see if model residuals are better
+
+NEE.final.lme = update(lme.NEE, weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)))
+anova(NEE.final.lme)
+
+NEE.final.lme = update(NEE.final.lme, method = "REML")
+anova(NEE.final) #landpos and soil temp are sig 
+
+vif(NEE.final.lme) #all <2, ok
+
+#lme for reference - with random effect of plot_ID
+# lme.NEE <- lme(flux_value ~ plot_type + landscape_position + inundated + soil_temp_10_cm + thawdepth + VWC, 
+#                random = ~1 | plot_ID, 
+#                data = df_NEE_cc, # na.action=na.exclude, --> don't need, already made dataset with complete cases
+#                method = 'ML')
+
+
+```
+
+####NEE.final model - Plot model residuals and qqplot
+```{r}
+#plot model residuals (homogeneity of variance)
+plot(NEE.final)
+
+#qqplot to verify normality
+qqnorm(NEE.final)
+
+#checking how this QQ plot compares to plots created with normally distributed residuals
+
+op <- par(mar = c(2,2,1,1), mfrow = c(5,5))
+
+# create first qq plot using model residuals
+# color it red
+qqnorm(residuals(NEE.final.lme), xlab = "", ylab = "", main = "", 
+       col = "red")
+qqline(residuals(NEE.final.lme))
+
+# now create 24 qq plots using Normal data with sigma(dataset)
+for(i in 1:24){
+  # rnorm() samples from a Normal distribution  
+  d <- rnorm(length(residuals(NEE.final)), 
+             mean = 0, sd = sigma(NEE.final))
+  qqnorm(d, xlab = "", ylab = "", main = "")
+  qqline(d)
+}
+
+#doesn't look awful, doesn't look great....have Kyle take a look 
+
+#comparing data QQplot to a normal QQplot and hist 
+qqnorm(residuals(NEE.final))
+hist(residuals(NEE.final)) 
+car::qqPlot(x = residuals(NEE.final)) #shows where residuals breach normal distr
+
+
+
+```
+
+#Normality of Residuals 
+```{r}
+# Extract standardized/normalized residuals
+std_resid <- residuals(NEE.final, type = "normalized")
+
+# Graphical assessment
+par(mfrow = c(1, 2))
+# Histogram of residuals
+hist(std_resid, main = "Histogram of Standardized Residuals", 
+     xlab = "Standardized Residuals", freq = FALSE)
+curve(dnorm, add = TRUE, col = "red")
+
+# QQ plot
+qqnorm(std_resid, main = "Normal Q-Q Plot")
+qqline(std_resid, col = "red")
+
+# Formal test
+shapiro_test <- shapiro.test(std_resid)
+print(shapiro_test) #for gls final model: p<0.001 --> normality NOT supported 
+
+```
+
+#Homogeneity of variance 
+```{r}
+# Plot residuals vs fitted values
+par(mfrow = c(1, 1))
+plot(fitted(NEE.final), std_resid,
+     xlab = "Fitted Values", ylab = "Standardized Residuals",
+     main = "Residuals vs Fitted")
+abline(h = 0, lty = 2)
+
+# Check residuals by predictor variables
+par(mfrow = c(2, 2))
+boxplot(std_resid ~ df_NEE_cc$landscape_position, 
+        main = "Residuals by Landscape Position")
+abline(h = 0, lty = 2)
+
+boxplot(std_resid ~ df_NEE_cc$plot_type, 
+        main = "Residuals by Plot Type")
+abline(h = 0, lty = 2)
+
+boxplot(std_resid ~ df_NEE_cc$inundated, 
+        main = "Residuals by Inundation")
+abline(h = 0, lty = 2)
+
+plot(df_NEE_cc$soil_temp_10_cm, std_resid,
+     xlab = "Soil Temperature (10 cm)", ylab = "Standardized Residuals")
+abline(h = 0, lty = 2)
+
+#Result: pretty good even spread here, indicates the variance structure captures the variance well * 
+
+
+```
+
+#Influencial observations - Cook's distance - need to read up more on this, not fully understanding 
+```{r}
+# Calculate Cook's distance (approximate for GLS)
+n <- nrow(df_NEE_cc)
+p <- length(coef(NEE.final))
+h <- hatvalues(lm(flux_value ~ plot_type + landscape_position + inundated + 
+                  soil_temp_10_cm + thawdepth + VWC, data = df_NEE_cc))
+cook_d <- (std_resid^2 / (p * (1 - h))) * h
+
+# Plot Cook's distance
+par(mfrow = c(1, 1))
+plot(cook_d, type = "h", main = "Cook's Distance", ylab = "Cook's Distance")
+abline(h = 4/n, col = "red", lty = 2)  # Rule of thumb threshold
+
+# Identify potentially influential points
+influential <- which(cook_d > 4/n)
+if (length(influential) > 0) {
+  cat("Potentially influential observations:", influential, "\n")
+}
+```
+
+#Overall model fit 
+```{r}
+# Plot observed vs fitted values
+par(mfrow = c(1, 1))
+plot(fitted(NEE.final), df_NEE_cc$flux_value,
+     xlab = "Fitted Values", ylab = "Observed Values",
+     main = "Observed vs Fitted Values")
+abline(0, 1, col = "red")  # 1:1 line
+
+# Calculate pseudo-R² (approximate for GLS)
+cor_fit_obs <- cor(fitted(NEE.final.lme), df_NEE_cc$flux_value)
+pseudo_r2 <- cor_fit_obs^2
+cat("Pseudo R-squared:", pseudo_r2, "\n") # for gls final model:R2 = 0.05, so though line looks good, the R2 is very weak 
+```
+
+#retesting models with help from claude, just one more time to make sure*
+```{r}
+# Base models with and without random effects
+
+base_gls <- gls(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm + thawdepth + VWC, 
+                data = df_NEE_cc, method = "ML")
+
+base_lme <- lme(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm + thawdepth + VWC, 
+                random = ~1|plot_ID, 
+                data = df_NEE_cc, method = "ML")
+
+# Compare with likelihood ratio test
+anova(base_gls, base_lme)
+#random effect doesn't improve model 
+```
+
+
+#retesting models - reducing variables, removing the added thaw depth and VWC 
+```{r}
+#Using the variance structure already determined - landpos & plottype 
+
+library(nlme)
+
+# full model - all variables 
+model_full <- gls(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm + thawdepth + VWC, 
+                  weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)),
+                 data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+# remove VWC
+model_noVWC <- gls(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm + thawdepth, 
+                        weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)),
+                        data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+# remove thawdepth
+model_nothaw <- gls(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm + VWC, 
+                          weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)),
+                         data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+# remove thawdepth and VWC
+model_nothawVWC <- gls(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)),
+                          data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+# remove soil temp
+model_nosoiltemp <- gls(flux_value ~ landscape_position + plot_type + inundated + thawdepth + VWC, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)),
+                          data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+# remove soil temp & VWC
+model_nosoiltempVWC <- gls(flux_value ~ landscape_position + plot_type + inundated + thawdepth, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)),
+                          data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+# remove soil temp & thawdepth
+model_nosoiltempthawdepth <- gls(flux_value ~ landscape_position + plot_type + inundated + VWC, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)),
+                          data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+# remove soil temp & thawdepth & VWC
+model_nosoiltempVWCthawdepth <- gls(flux_value ~ landscape_position + plot_type + inundated, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)),
+                          data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+# interaction of inundated and landpos, removing VWC as suggested by prev model results 
+model_interactlandposinun<- gls(flux_value ~ landscape_position * inundated + plot_type + soil_temp_10_cm + thawdepth, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)),
+                          data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+
+
+# Compare all variance structure models using AIC/BIC
+models_list <- list(Full = model_full, 
+                   Nothaw = model_nothaw,
+                   NoVWC = model_noVWC,
+                   NothawVWC = model_nothawVWC,
+                   Nosoiltemp = model_nosoiltemp,
+                   NosoiltempVWC = model_nosoiltempVWC,
+                   Nosoiltempthawdepth = model_nosoiltempthawdepth,
+                   NosoiltempVWCthawdepth = model_nosoiltempVWCthawdepth,
+                   Landposinin_interact = model_interactlandposinun)
+
+# Extract AIC and BIC
+model_comparison <- data.frame(
+  Model = names(models_list),
+  AIC = sapply(models_list, AIC),
+  BIC = sapply(models_list, BIC)
+)
+
+# Sort by AIC
+model_comparison <- model_comparison[order(model_comparison$AIC),]
+print(model_comparison) #nothawVWC performs best 
+
+# testing models 
+anova(model_full, model_nothaw) #ML: no sig diff
+anova(model_full, model_noVWC) #ML: no sig diff
+anova(model_full, model_nothawVWC) #ML: no sig diff
+anova(model_full, model_nosoiltemp) #ML: no sig diff
+anova(model_full, model_nosoiltempthawdepth)#ML: no sig diff
+anova(model_full, model_nosoiltempVWC)#no sig diff
+anova(model_full, model_nosoiltempVWCthawdepth) #no sig diff
+anova(model_full, model_interactlandposinun) #no sig diff 
+anova(model_full, model_nothaw, model_noVWC, model_nothawVWC, model_nosoiltemp, model_nosoiltempVWC, model_nosoiltempthawdepth, model_nosoiltempVWCthawdepth, model_interactlandposinun) 
+#noVWC seems to be the best model, but nothawVWC very close 
+anova(model_nothaw, model_nothawVWC) #ML: no sig diff
+anova(model_noVWC, model_nothawVWC) #ML: no sig diff
+
+#Result: no model is sig...but lowest AIC/BIC are model with no thawdepth and no VWC, which puts us back at original with landpos, plot type, inundated, and soil temp 
+```
+
+####testing interaction effect btwn landpos and inundated 
+```{r}
+#model_nothawVWC
+NEE_final2 = gls(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 |                                                   plot_type)),
+                          data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+#with interaction effect 
+NEE_final3 = gls(flux_value ~ landscape_position * inundated + plot_type + soil_temp_10_cm, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 | plot_type)),
+                          data = df_NEE_cc, method = "ML", na.action = na.omit)
+
+anova(NEE_final2, NEE_final3)
+
+#no sig diff, so leaving interaction effect out and NEE_final2 is the final model 
+
+#Re-fit with REML and then test assumptions 
+NEE_final2 = gls(flux_value ~ landscape_position + plot_type + inundated + soil_temp_10_cm, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position), varIdent(form = ~ 1 |                                                   plot_type)),
+                          data = df_NEE_cc, method = "REML")
+anova(NEE_final2)#landpos and soil temp are sig diff 
+
+
+
+```
+#Re-running the final model tests of normality and homogeneity with adjusted final model without thawdepth and VWC
+
+####NEE_final2 model - Plot model residuals and qqplot
+```{r}
+#plot model residuals (homogeneity of variance)
+plot(NEE_final2)
+
+#qqplot to verify normality
+qqnorm(NEE_final2)
+
+#checking how this QQ plot compares to plots created with normally distributed residuals
+
+op <- par(mar = c(2,2,1,1), mfrow = c(5,5))
+
+# create first qq plot using model residuals
+# color it red
+qqnorm(residuals(NEE_final2), xlab = "", ylab = "", main = "", 
+       col = "red")
+qqline(residuals(NEE_final2))
+
+# now create 24 qq plots using Normal data with sigma(dataset)
+for(i in 1:24){
+  # rnorm() samples from a Normal distribution  
+  d <- rnorm(length(residuals(NEE_final2)), 
+             mean = 0, sd = sigma(NEE_final2))
+  qqnorm(d, xlab = "", ylab = "", main = "")
+  qqline(d)
+}
+
+#doesn't look awful, doesn't look great....have Kyle take a look 
+
+#comparing data QQplot to a normal QQplot and hist 
+qqnorm(residuals(NEE_final2))
+hist(residuals(NEE_final2)) 
+car::qqPlot(x = residuals(NEE_final2)) #shows where residuals breach normal distr
+
+```
+#Normality of Residuals 
+```{r}
+# Extract standardized/normalized residuals
+std_resid <- residuals(NEE_final2, type = "normalized")
+
+# Graphical assessment
+par(mfrow = c(1, 2))
+# Histogram of residuals
+hist(std_resid, main = "Histogram of Standardized Residuals", 
+     xlab = "Standardized Residuals", freq = FALSE)
+curve(dnorm, add = TRUE, col = "red")
+
+# QQ plot
+qqnorm(std_resid, main = "Normal Q-Q Plot")
+qqline(std_resid, col = "red")
+
+# Formal test
+shapiro_test <- shapiro.test(std_resid)
+print(shapiro_test) #p<0.001 --> normality NOT supported 
+
+```
+#Homogeneity of variance 
+```{r}
+# Plot residuals vs fitted values
+par(mfrow = c(1, 1))
+plot(fitted(NEE_final2), std_resid,
+     xlab = "Fitted Values", ylab = "Standardized Residuals",
+     main = "Residuals vs Fitted")
+abline(h = 0, lty = 2)
+
+# Check residuals by predictor variables
+par(mfrow = c(2, 2))
+boxplot(std_resid ~ df_NEE_cc$landscape_position, 
+        main = "Residuals by Landscape Position")
+abline(h = 0, lty = 2)
+
+boxplot(std_resid ~ df_NEE_cc$plot_type, 
+        main = "Residuals by Plot Type")
+abline(h = 0, lty = 2)
+
+boxplot(std_resid ~ df_NEE_cc$inundated, 
+        main = "Residuals by Inundation")
+abline(h = 0, lty = 2)
+
+plot(df_NEE_cc$soil_temp_10_cm, std_resid,
+     xlab = "Soil Temperature (10 cm)", ylab = "Standardized Residuals")
+abline(h = 0, lty = 2)
+
+#Result: pretty even spread here, indicates the variance structure captures the variance well * 
+```
+#Influencial observations - cook's distance - need to read up on this more, don't fully understand 
+```{r}
+# Calculate Cook's distance (approximate for GLS)
+n <- nrow(df_NEE_cc)
+p <- length(coef(NEE_final2))
+h <- hatvalues(lm(flux_value ~ plot_type + landscape_position + inundated + 
+                  soil_temp_10_cm, data = df_NEE_cc))
+cook_d <- (std_resid^2 / (p * (1 - h))) * h
+
+# Plot Cook's distance
+par(mfrow = c(1, 1))
+plot(cook_d, type = "h", main = "Cook's Distance", ylab = "Cook's Distance")
+abline(h = 4/n, col = "red", lty = 2)  # Rule of thumb threshold
+
+# Identify potentially influential points
+influential <- which(cook_d > 4/n)
+if (length(influential) > 0) {
+  cat("Potentially influential observations:", influential, "\n")
+}
+```
+#Overall model fit 
+```{r}
+# Plot observed vs fitted values
+par(mfrow = c(1, 1))
+plot(fitted(NEE_final2), df_NEE_cc$flux_value,
+     xlab = "Fitted Values", ylab = "Observed Values",
+     main = "Observed vs Fitted Values")
+abline(0, 1, col = "red")  # 1:1 line
+
+# Calculate pseudo-R² (approximate for GLS)
+cor_fit_obs <- cor(fitted(NEE_final2), df_NEE_cc$flux_value)
+pseudo_r2 <- cor_fit_obs^2
+cat("Pseudo R-squared:", pseudo_r2, "\n") # R2 = 0.04
+```
+#Correlation analysis for continuous values 
+```{r}
+# Correlation matrix for continuous variables
+cor_matrix <- cor(df_NEE_cc[c("flux_value", "soil_temp_10_cm", "thawdepth", "VWC")], 
+                 use = "complete.obs")
+
+# Visualize correlations
+library(corrplot)
+corrplot(cor_matrix, method = "circle")
+```
+#Standardized coefficients - comparison of relative importance among continuous predictors 
+```{r}
+# Standardize continuous predictors
+df_NEE_std <- df_NEE_cc
+df_NEE_std$soil_temp_10_cm <- scale(df_NEE_std$soil_temp_10_cm)
+if ("thawdepth" %in% names(df_NEE_std)) df_NEE_std$thawdepth <- scale(df_NEE_std$thawdepth)
+if ("VWC" %in% names(df_NEE_std)) df_NEE_std$VWC <- scale(df_NEE_std$VWC)
+
+# Fit model with standardized variables
+std_model <- update(NEE_final2, data = df_NEE_std)
+summary(std_model)
+```
+
