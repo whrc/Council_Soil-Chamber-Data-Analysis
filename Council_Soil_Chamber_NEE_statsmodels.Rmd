@@ -34,6 +34,8 @@ library(openair)
 library(nlme)
 library(lme4)
 
+Sys.setenv(TZ='UTC')
+
 ```
 
 #Load filtered and merged df of soil chamber fluxes, moisture, temp (I upload multiples but only using df_NEE_RECO2 and df_NEE_RECO2_GPP for analysis below)
@@ -886,5 +888,350 @@ if ("VWC" %in% names(df_NEE_std)) df_NEE_std$VWC <- scale(df_NEE_std$VWC)
 # Fit model with standardized variables
 std_model <- update(NEE_final2, data = df_NEE_std)
 summary(std_model)
+```
+
+#Break NEE up by plot type 
+
+c#EC NEE - Variance and normality
+```{r}
+sum(is.na(df_EClongNEE$flux_value)) #check for 0's, in this one all the variables of interest have 0 NAs
+# Look for missing values
+any(is.na(df_EClongNEE[, c("flux_value", "landscape_position", "inundated", 
+                           "soil_temp_10_cm", "thawdepth", "VWC")]))
+
+# Calculate variance within groups
+df_EClongNEE <- df_EClong %>%
+  filter(flux_type == "NEE")
+
+#Flux and landscape pos
+df_variance_landpos <- df_EClongNEE %>%
+  group_by(landscape_position) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_landpos)
+
+# Variance plot - flux and landscape pos
+ggplot(df_variance_landpos, aes(x = landscape_position, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Landscape Position",
+       y = "Variance")
+#higher variance in upland landscape position than lowland* --> no slope here 
+
+
+#Flux and inundated - dropped 2 NAs in inundated
+df_variance_inundated <- df_EClongNEE %>%
+  group_by(inundated) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_inundated)
+
+# Variance plot - flux and inundated
+ggplot(df_variance_inundated, aes(x = inundated, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Inundation",
+       y = "Variance")
+#higher variance NOT* inundated plots 
+
+
+# Shapiro-Wilk test for normality across entire dataset
+shapiro_test <- shapiro.test(df_EClongNEE$flux_value)
+print(shapiro_test) #p=0.067, above 0.05, so looks like it conforms to normality assumptions 
+
+
+# Test normality within each landscape position
+df_EClongNEE %>%
+  group_by(landscape_position) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: all yes 
+
+
+# Test normality based on inundated
+df_EClongNEE %>%
+  group_by(inundated) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: all yes 
+
+
+# Q-Q plot of full dataset 
+qqnorm(df_EClongNEE$flux_value)
+qqline(df_EClongNEE$flux_value, col = "red")
+
+
+#histograms with density curves by landscape position
+ggplot(df_EClongNEE, aes(x = flux_value, fill = landscape_position)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~landscape_position) +
+  theme_minimal() +
+  labs(title = "Distribution of NEE by Landscape Position")
+
+
+# histograms with density curves by inundated
+ggplot(df_EClongNEE, aes(x = flux_value, fill = inundated)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~inundated) +
+  theme_minimal() +
+  labs(title = "Distribution of NEE by Inundation")
+
+
+
+#homogeneity of variance - levene's test
+# p > 0.05: Variances are homogeneous (no significant difference between variances).
+# p ≤ 0.05: Variances are not homogeneous.
+library(car)
+
+# Test homogeneity of variance for all main factors
+leveneTest(flux_value ~ landscape_position, data = df_EClongNEE) #p=0.57, homogeneity of var is ok
+leveneTest(flux_value ~ inundated, data = df_EClongNEE)#p = 0.23, ok
+
+
+#for interactions
+leveneTest(flux_value ~ landscape_position * plot_type, data = df_EClongNEE) #p=0.57, ok
+leveneTest(flux_value ~ landscape_position * inundated, data = df_EClongNEE) #p=0.54, ok
+
+
+```
+####Testing models for EC NEE -- dataset already in complete cases for EC 
+####Testing whether random effect plot_ID should be included or not 
+```{r}
+#Make plot_ID, inundated, landscape_position as factor so they'll work with gls
+df_EClongNEE$plot_ID = factor(df_EClongNEE$plot_ID)
+df_EClongNEE$landscape_position = factor(df_EClongNEE$landscape_position)
+df_EClongNEE$inundated = factor(df_EClongNEE$inundated)
+
+
+#use 'ML' for comparing models 
+library(nlme)
+#gls - no random effect
+gls.EC.NEE = gls(flux_value ~  landscape_position + inundated + soil_temp_10_cm + thawdepth + VWC, data = df_EClongNEE, method = 'ML') #, na.action=na.exclude) --> don't need, already made dataset with complete cases
+anova(gls.EC.NEE) #sig diff in landpos, p = 0.02
+
+#lme - with random effect of plot_ID
+lme.EC.NEE <- lme(flux_value ~ landscape_position + inundated + soil_temp_10_cm + thawdepth + VWC, 
+               random = ~1 | plot_ID, 
+               data = df_EClongNEE, # na.action=na.exclude, --> don't need, already made dataset with complete cases
+               method = 'ML')
+anova(lme.EC.NEE) #shows no sig diff in NEE among these 
+
+#Comparing the models 
+anova(gls.EC.NEE, lme.EC.NEE) #p = 0.3, no improvement to model with random effect - so plot_ID random effect *NOT needed here 
+
+```
+
+####Multicollinearity in model- EC.NEE
+```{r}
+#variance inflation factor (vif) - vif = 1 = variables are not correlated; between 1 & 5 = moderately correlated,  5 or higher indicates highly correlated & multicollinearity among variables. GVIF is a generalized VIF for categorical variables with more than two levels; the adj VIF gives values for comparing across variables with diff degrees of freedom* --> look at both when assessing collinearity in a model 
+library(car)
+vif(gls.EC.NEE) # all variables ~2 or less, no impactful multicollinearity 
+```
+#### Variance Structre
+```{r}
+#testing variance structure - using only categorical variables here, not numeric (soil temp, thawdepth, VWC)
+
+#Check sample size by group
+table(df_EClongNEE$landscape_position, df_EClongNEE$inundated)
+
+#based on inundation --> can't use this var structure due to small sample size in levels 
+# var.EC.NEE.inundated = update(gls.EC.NEE, weights = varIdent(form = ~1|inundated))
+# anova(var.EC.NEE.inundated) 
+# anova(gls.EC.NEE, var.EC.NEE.inundated) 
+
+
+#based on landscape position
+var.EC.NEE.landpos = update(gls.EC.NEE, weights = varIdent(form = ~1|landscape_position))
+anova(var.EC.NEE.landpos) #no diffs among variables 
+anova(gls.EC.NEE, var.EC.NEE.landpos) #p = <0.0001, adding in the variance by inundation significantly improves the model fit (but only slightly lower AIC, lower BIC, and higher LogLik)
+
+
+#now testing which models are best fit 
+anova(gls.EC.NEE, var.EC.NEE.landpos) #p=0.033, so var structure = sig improvement, but the differences in AIC/BIC/LogLik are very small. will test both models and see how they do...
+ 
+```
+
+#testing models - reducing variables, using landpos for variance  
+```{r}
+#Using the variance structure already determined - landpos 
+
+library(nlme)
+
+# full model.EC - all variables 
+model.EC_full <- gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm + thawdepth + VWC, 
+                  weights = varComb(varIdent(form = ~ 1| landscape_position)),
+                 data = df_EClongNEE, method = "ML", na.action = na.omit)
+
+# remove VWC
+model.EC_noVWC <- gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm + thawdepth, 
+                        weights = varComb(varIdent(form = ~ 1| landscape_position)),
+                        data = df_EClongNEE, method = "ML", na.action = na.omit)
+
+# remove thawdepth
+model.EC_nothaw <- gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm + VWC, 
+                          weights = varComb(varIdent(form = ~ 1| landscape_position)),
+                         data = df_EClongNEE, method = "ML", na.action = na.omit)
+
+# remove thawdepth and VWC
+model.EC_nothawVWC <- gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position)),
+                          data = df_EClongNEE, method = "ML", na.action = na.omit)
+
+# remove soil temp
+model.EC_nosoiltemp <- gls(flux_value ~ landscape_position + inundated + thawdepth + VWC, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position)),
+                          data = df_EClongNEE, method = "ML", na.action = na.omit)
+
+# remove soil temp & VWC
+model.EC_nosoiltempVWC <- gls(flux_value ~ landscape_position + inundated + thawdepth, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position)),
+                          data = df_EClongNEE, method = "ML", na.action = na.omit)
+
+# remove soil temp & thawdepth
+model.EC_nosoiltempthawdepth <- gls(flux_value ~ landscape_position + inundated + VWC, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position)),
+                          data = df_EClongNEE, method = "ML", na.action = na.omit)
+
+# remove soil temp & thawdepth & VWC
+model.EC_nosoiltempVWCthawdepth <- gls(flux_value ~ landscape_position + inundated, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position)),
+                          data = df_EClongNEE, method = "ML", na.action = na.omit)
+
+# interaction of inundated and landpos, removing VWC as suggested by prev model.EC results 
+#--> can't do interaction here as there are 0 upland plots that are inundated 
+
+
+
+# Compare all variance structure model.ECs using AIC/BIC
+model.ECs_list <- list(Full = model.EC_full, 
+                   Nothaw = model.EC_nothaw,
+                   NoVWC = model.EC_noVWC,
+                   NothawVWC = model.EC_nothawVWC,
+                   Nosoiltemp = model.EC_nosoiltemp,
+                   NosoiltempVWC = model.EC_nosoiltempVWC,
+                   Nosoiltempthawdepth = model.EC_nosoiltempthawdepth,
+                   NosoiltempVWCthawdepth = model.EC_nosoiltempVWCthawdepth)
+
+# Extract AIC and BIC
+model.EC_comparison <- data.frame(
+  model.EC = names(model.ECs_list),
+  AIC = sapply(model.ECs_list, AIC),
+  BIC = sapply(model.ECs_list, BIC)
+)
+
+# Sort by AIC
+model.EC_comparison <- model.EC_comparison[order(model.EC_comparison$AIC),]
+print(model.EC_comparison) #nothawVWC performs best 
+
+# testing model.ECs 
+anova(model.EC_full, model.EC_nothaw) #ML: no sig diff
+anova(model.EC_full, model.EC_noVWC) #ML: no sig diff
+anova(model.EC_full, model.EC_nothawVWC) #ML: no sig diff
+anova(model.EC_full, model.EC_nosoiltemp) #ML: no sig diff
+anova(model.EC_full, model.EC_nosoiltempthawdepth)#ML: no sig diff
+anova(model.EC_full, model.EC_nosoiltempVWC)#no sig diff
+anova(model.EC_full, model.EC_nosoiltempVWCthawdepth) #no sig diff
+
+anova(model.EC_full, model.EC_nothaw, model.EC_noVWC, model.EC_nothawVWC, model.EC_nosoiltemp, model.EC_nosoiltempVWC, model.EC_nosoiltempthawdepth, model.EC_nosoiltempVWCthawdepth) 
+#noVWC seems to be the best model.EC, but nothawVWC very close 
+anova(model.EC_nothaw, model.EC_nothawVWC) #ML: no sig diff
+anova(model.EC_noVWC, model.EC_nothawVWC) #ML: no sig diff
+
+#Result: no model is sig...the best model appears to be no thawdepth and no VWC, which puts us back at original with landpos, plot type, inundated, and soil temp 
+
+
+# Final EC NEE model: remove thawdepth and VWC - refit with REML 
+EC.NEE.final <- gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm, 
+                           weights = varComb(varIdent(form = ~ 1| landscape_position)),
+                          data = df_EClongNEE, method = "REML", na.action = na.omit)
+anova(EC.NEE.final)
+#sig diff in lanpost (p<0.01) and soil temp marginal (p=0.048)
+```
+####EC.NEE.final model - Plot model residuals and qqplot
+```{r}
+#plot model residuals (homogeneity of variance)
+plot(EC.NEE.final)
+
+#qqplot to verify normality
+qqnorm(EC.NEE.final)
+
+#checking how this QQ plot compares to plots created with normally distributed residuals
+
+op <- par(mar = c(2,2,1,1), mfrow = c(5,5))
+
+# create first qq plot using model residuals
+# color it red
+qqnorm(residuals(EC.NEE.final), xlab = "", ylab = "", main = "", 
+       col = "red")
+qqline(residuals(EC.NEE.final))
+
+# now create 24 qq plots using Normal data with sigma(dataset)
+for(i in 1:24){
+  # rnorm() samples from a Normal distribution  
+  d <- rnorm(length(residuals(EC.NEE.final)), 
+             mean = 0, sd = sigma(EC.NEE.final))
+  qqnorm(d, xlab = "", ylab = "", main = "")
+  qqline(d)
+}
+
+#doesn't look awful, doesn't look great....have Kyle take a look 
+
+#comparing data QQplot to a normal QQplot and hist 
+qqnorm(residuals(EC.NEE.final))
+hist(residuals(EC.NEE.final)) 
+car::qqPlot(x = residuals(EC.NEE.final)) #shows where residuals breach normal distr
+
+```
+#Normality of Residuals 
+```{r}
+# Extract standardized/normalized residuals
+std_resid <- residuals(EC.NEE.final, type = "normalized")
+
+# Graphical assessment
+par(mfrow = c(1, 2))
+# Histogram of residuals
+hist(std_resid, main = "Histogram of Standardized Residuals", 
+     xlab = "Standardized Residuals", freq = FALSE)
+curve(dnorm, add = TRUE, col = "red")
+
+# QQ plot
+qqnorm(std_resid, main = "Normal Q-Q Plot")
+qqline(std_resid, col = "red")
+
+# Formal test
+shapiro_test <- shapiro.test(std_resid)
+print(shapiro_test) #for gls final model: p=0.46 --> normality supported
+
+```
+#Homogeneity of variance 
+```{r}
+# Plot residuals vs fitted values
+par(mfrow = c(1, 1))
+plot(fitted(EC.NEE.final), std_resid,
+     xlab = "Fitted Values", ylab = "Standardized Residuals",
+     main = "Residuals vs Fitted")
+abline(h = 0, lty = 2)
+
+# Check residuals by predictor variables
+par(mfrow = c(2, 2))
+boxplot(std_resid ~ df_EClongNEE$landscape_position, 
+        main = "Residuals by Landscape Position")
+abline(h = 0, lty = 2)
+
+boxplot(std_resid ~ df_EClongNEE$inundated, 
+        main = "Residuals by Inundation")
+abline(h = 0, lty = 2)
+
+plot(df_EClongNEE$soil_temp_10_cm, std_resid,
+     xlab = "Soil Temperature (10 cm)", ylab = "Standardized Residuals")
+abline(h = 0, lty = 2)
+
+#Result: pretty good even spread here, indicates the variance structure captures the variance well * 
 ```
 
