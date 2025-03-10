@@ -124,14 +124,14 @@ df_BGClong <- df_BGClong %>% arrange(flux_type)
 
 c#EC NEE - Variance and normality
 ```{r}
+# Calculate variance within groups
+df_EClongNEE <- df_EClong %>%
+  filter(flux_type == "NEE")
+
 sum(is.na(df_EClongNEE$flux_value)) #check for 0's, in this one all the variables of interest have 0 NAs
 # Look for missing values
 any(is.na(df_EClongNEE[, c("flux_value", "landscape_position", "inundated", 
                            "soil_temp_10_cm", "thawdepth", "VWC")]))
-
-# Calculate variance within groups
-df_EClongNEE <- df_EClong %>%
-  filter(flux_type == "NEE")
 
 #Flux and landscape pos
 df_variance_landpos <- df_EClongNEE %>%
@@ -225,7 +225,6 @@ leveneTest(flux_value ~ inundated, data = df_EClongNEE)#p = 0.23, ok
 
 
 #for interactions
-leveneTest(flux_value ~ landscape_position * plot_type, data = df_EClongNEE) #p=0.57, ok
 leveneTest(flux_value ~ landscape_position * inundated, data = df_EClongNEE) #p=0.54, ok
 
 
@@ -473,7 +472,7 @@ abline(h = 0, lty = 2)
 
 #Stats with final model
 ```{r}
-# Final EC NEE model: remove thawdepth and VWC - refit with REML 
+# Final EC NEE model: remove thawdepth and VWC - refit with REML - used complete cases df_EClongNEE
 EC.NEE.final <- gls(flux_value ~ landscape_position + inundated + soil_temp_10_cm, 
                            weights = varIdent(form = ~ 1| landscape_position),
                           data = df_EClongNEE, method = "REML", na.action = na.omit)
@@ -486,7 +485,9 @@ emmeans(EC.NEE.final, adjust = "Tukey", pairwise ~ inundated) #p=0.64, not sig
 
 gls.EC.NEE.soiltemp = gls(flux_value ~ soil_temp_10_cm, data = df_EClongNEE, method = 'ML', na.action=na.exclude)
 anova(gls.EC.NEE.soiltemp) #no sig diff, p = 0.13
+
 ```
+
 
 
 
