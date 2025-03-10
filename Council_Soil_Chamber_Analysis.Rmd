@@ -41,6 +41,8 @@ library(dplyr)
 library(openair)
 library(nlme)
 library(lme4)
+
+Sys.setenv(TZ='UTC')
 ```
 
 
@@ -53,6 +55,8 @@ df_NEE_RECO2 = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Counci
 #calculated GPP (NEE - Reco)
 df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_NEE_RECO2_GPP_2017to2019.csv')
 
+head(df_NEE_RECO2_GPP)
+str(df_NEE_RECO2_GPP)
 
 ```
 
@@ -67,7 +71,7 @@ df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Co
 #  flux_CH4 * (1/1000000000)*12))
 
 #flux-CO2 and flux-CH4 are in this df and are already in umol so below is not necessary but leaving for reference
-
+#FCH4 and FCO2 are in g/m2/s 
 
 #g to umol 
 # Net CO2 Flux - convert from umol/m2/s to gC/m2/s
@@ -93,12 +97,13 @@ df_NEE_RECO2_GPP<- df_NEE_RECO2_GPP %>%
 
 # Reshape the dataframe to long format
 df_long <- df_NEE_RECO2_GPP %>%
-  select(plot_ID, plot_type, landscape_position, measurement_date, FCH4, flux_CO2, flux_CH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, time, FCH4, flux_CO2, flux_CH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>%
   pivot_longer(cols = c(NEE, RECO, GPP), 
                names_to = "flux_type", 
                values_to = "flux_value")
 
-
+head(df_long)
+str(df_long)
 
 ```
 
@@ -169,6 +174,8 @@ df_BGClong <- df_BGC %>%
 df_EClong <- df_EClong %>% arrange(flux_type)
 df_MWlong <- df_MWlong %>% arrange(flux_type)
 df_BGClong <- df_BGClong %>% arrange(flux_type)
+
+str(df_EClong)
 
 ```
 
@@ -1138,7 +1145,7 @@ ggplot(df_RECO, aes(x = soil_temp_10_cm, y = flux_value)) +
 
 #AGU figs
 ```{r}
-#looking at FCH4 (in g/m2/s) by landscape position and plot type, facet wrapped 
+#looking at FCH4 (in g/m2/s) by landscape position and plot type, facet wrapped --> revert to umolCO2 and nmolCH4*
 ggplot(df_long,
        aes(x=landscape_position, y = (FCH4 *1/12 * 1000000), fill = plot_type))+
   geom_boxplot()+
