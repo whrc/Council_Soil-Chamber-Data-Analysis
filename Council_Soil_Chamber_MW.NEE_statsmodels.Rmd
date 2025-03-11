@@ -502,6 +502,149 @@ leveneTest(std_resid ~ df_MWlongNEE$landscape_position) #p=0.7; this says it's o
 ```
 #Need to ask kyle about the normality violation* 
 
+#Cook's distance for potential outlier - measure of the influence each observation has on predicted values of a regression model. Considers how far the point is from mean of the predictor variables (leverage) and how far the point is from the predicted value (residual). A high value means an obs has strong influence on regression results; values greater than 1 are considered concerning (potential outlier) and values larger than 4/n (n=sample size) need looking into. 
+```{r}
+library(influence.ME)  
+
+# Equivalent linear model (needed for leverage/hat values)
+lm_model <- lm(flux_value ~ landscape_position + soil_temp_10_cm + 
+               thawdepth + VWC, data = df_MWlongNEE)
+
+# Extract standardized residuals
+std_resid <- residuals(MW.NEE.final, type = "normalized")
+
+# Approx. Cook's D for GLS (using hatvalues from equivalent lm model)
+h <- hatvalues(lm_model)
+p <- length(coef(MW.NEE.final))
+n <- nrow(df_MWlongNEE) # n = sample size / # of obs - for this plot type n = 22
+cook_d_gls <- (std_resid^2 / (p * (1 - h))) * h
+
+# Plot
+plot(cook_d_gls, type = "h", main = "Cook's Distance for GLS Model with var structure", 
+     ylab = "Cook's Distance")
+abline(h = 4/n, col = "red", lty = 2)
+
+# Identify outliers
+influential_gls <- which(cook_d_gls > 4/n)
+points(influential_gls, cook_d_gls[influential_gls], col = "red", pch = 19)
+
+# Print the influential observations
+if(length(influential_gls) > 0) {
+  cat("Potentially influential observations (GLS-adjusted):\n")
+  print(df_MWlongNEE[influential_gls, ])
+}
+
+# Rule of thumb threshold
+threshold <- 4/n
+
+# Find indices above threshold
+influential <- which(cook_d_gls > threshold)
+
+# View these observations
+print(df_MWlongNEE[influential, ])
+
+#Results: this seems to show that Cook's D doesn't identify any points above the threshold of 4/n (4/22 = 0.1818) so there doesn't seem to be a real outlier. 
+```
+
+#Identify most influential points 
+```{r}
+# Sort Cook's distances and find the top 3-5 most influential points
+sorted_indices <- order(cook_d_gls, decreasing = TRUE)
+top_influential <- sorted_indices[1:22]  # Adjust number as needed, based on number of obs 
+
+# View these observations
+print(df_MWlongNEE[top_influential, ])
+
+# Print their Cook's distance values
+cat("Cook's distance values for top influential points:\n")
+for(i in 1:length(top_influential)) {
+  cat(sprintf("Index %d: %.6f\n", top_influential[i], cook_d_gls[top_influential[i]]))
+}
+```
+#Visualizing influential points - table and fig 
+
+```{r}
+#Table with Cook's D for each variable 
+
+# Identify the top 5 most influential points by index
+sorted_indices <- order(cook_d_gls, decreasing = TRUE)
+top_influential <- sorted_indices[1:22]  # n - number of obs 
+
+# Create a data frame that shows the index and Cook's distance value
+influential_points <- data.frame(
+  Original_Row = top_influential,
+  Cooks_Distance = cook_d_gls[top_influential]
+)
+
+# Extract the actual observations with all their variables
+influential_obs <- df_MWlongNEE[top_influential, ]
+
+# Combine the information
+result <- cbind(influential_points, influential_obs)
+print(result)
+
+
+#The red dots only show you which row these obs come from*** NOT an influential rank or Cook's D*
+
+#  visualize thaw depth relationship
+plot(df_MWlongNEE$thawdepth, df_MWlongNEE$flux_value,
+     main = "NEE vs Thaw Depth with Influential Points Highlighted",
+     xlab = "Thaw Depth", ylab = "NEE Flux Value")
+points(df_MWlongNEE$thawdepth[top_influential], 
+       df_MWlongNEE$flux_value[top_influential],
+       col = "red", pch = 19, cex = 1.5)
+
+# Add labels to the influential points
+text(df_MWlongNEE$thawdepth[top_influential], 
+     df_MWlongNEE$flux_value[top_influential],
+     labels = top_influential, pos = 4, col = "red")
+
+
+
+#  visualize landscape position relationship
+plot(df_MWlongNEE$landscape_position, df_MWlongNEE$flux_value,
+     main = "NEE vs Land_pos with Influential Points Highlighted",
+     xlab = "Land_pos", ylab = "NEE Flux Value")
+points(df_MWlongNEE$landscape_position[top_influential], 
+       df_MWlongNEE$flux_value[top_influential],
+       col = "red", pch = 19, cex = 1.5)
+
+# Add labels to the influential points
+text(df_MWlongNEE$landscape_position[top_influential], 
+     df_MWlongNEE$flux_value[top_influential],
+     labels = top_influential, pos = 4, col = "red")
+
+
+#  visualize soil temp relationship
+plot(df_MWlongNEE$soil_temp_10_cm, df_MWlongNEE$flux_value,
+     main = "NEE vs Soil Temp 10cm with Influential Points Highlighted",
+     xlab = "Soil temp C", ylab = "NEE Flux Value")
+points(df_MWlongNEE$soil_temp_10_cm[top_influential], 
+       df_MWlongNEE$flux_value[top_influential],
+       col = "red", pch = 19, cex = 1.5)
+
+# Add labels to the influential points
+text(df_MWlongNEE$soil_temp_10_cm[top_influential], 
+     df_MWlongNEE$flux_value[top_influential],
+     labels = top_influential, pos = 4, col = "red")
+
+
+
+#  visualize VWC relationship
+plot(df_MWlongNEE$VWC, df_MWlongNEE$flux_value,
+     main = "NEE vs VWC with Influential Points Highlighted",
+     xlab = "VWC", ylab = "NEE Flux Value")
+points(df_MWlongNEE$VWC[top_influential], 
+       df_MWlongNEE$flux_value[top_influential],
+       col = "red", pch = 19, cex = 1.5)
+
+# Add labels to the influential points
+text(df_MWlongNEE$VWC[top_influential], 
+     df_MWlongNEE$flux_value[top_influential],
+     labels = top_influential, pos = 4, col = "red")
+
+#These images show that the main outlier is from the very low NEE fluxes in row 1 of dataset * but since it doesn't seem to violate Cook's D, it's probably not a true outlier, and therefore I'm choosing to keep it for now. 
+```
 
 
 #Stats with final model
@@ -541,7 +684,7 @@ library(effects)
 thaw_effect <- Effect("thawdepth", MW.NEE.final)
 plot(thaw_effect)
 ```
-
+#thaw bins 
 ```{r}
 # Create bins based on quantiles (equal number of observations)
 df_MWlongNEE$thaw_bin <- cut(df_MWlongNEE$thawdepth, 
@@ -559,10 +702,227 @@ anova(thaw_bin_model)
 summary(thaw_bin_model)
 
 # Visualize
-boxplot(flux_value ~ thaw_bin, data = df_MWlongNEE)
+boxplot(flux_value ~ thaw_bin, data = df_MWlongNEE) #inc NEE with inc thaw depth 
 
 
 ```
+
+#SoilTemp bins 
+```{r}
+# Create bins based on quantiles (equal number of observations)
+df_MWlongNEE$soiltemp_bin <- cut(df_MWlongNEE$soil_temp_10_cm, 
+                            breaks = quantile(df_MWlongNEE$soil_temp_10_cm, 
+                                             probs = c(0, 0.33, 0.67, 1)), #shallow = bottom third of thaw depth values, medium = middle third of thaw depth values, and deep = top third of values 
+                            labels = c("Cool", "Warm", "Warmest"),
+                            include.lowest = TRUE)
+
+# Test differences in NEE between bins
+soiltemp_bin_model <- gls(flux_value ~ soiltemp_bin + landscape_position + VWC + thawdepth,
+                 weights = varIdent(form = ~ 1| landscape_position),
+                data = df_MWlongNEE, method = "REML")
+anova(soiltemp_bin_model)
+summary(soiltemp_bin_model)
+
+# Visualize
+boxplot(flux_value ~ soiltemp_bin, data = df_MWlongNEE) #inc NEE with inc temp
+
+```
+#VWC bins 
+```{r}
+# Create bins based on quantiles (equal number of observations)
+df_MWlongNEE$VWC_bin <- cut(df_MWlongNEE$VWC, 
+                            breaks = quantile(df_MWlongNEE$VWC, 
+                                             probs = c(0, 0.33, 0.67, 1)), #shallow = bottom third of thaw depth values, medium = middle third of thaw depth values, and deep = top third of values 
+                            labels = c("Dry", "Moist", "Wet"),
+                            include.lowest = TRUE)
+
+# Test differences in NEE between bins
+VWC_bin_model <- gls(flux_value ~ VWC_bin + landscape_position + soil_temp_10_cm + thawdepth,
+                 weights = varIdent(form = ~ 1| landscape_position),
+                data = df_MWlongNEE, method = "REML")
+anova(VWC_bin_model)
+summary(VWC_bin_model)
+
+# Visualize
+boxplot(flux_value ~ VWC_bin, data = df_MWlongNEE) #no huge variation with VWC bins
+
+```
+#Boxplot of NEE and landpos
+```{r}
+# Visualize
+boxplot(flux_value ~ landscape_position, data = df_MWlongNEE) #very little variation in NEE fluxes for lowland
+```
+#trying to transform mixed pos and neg values
+```{r}
+# Shifted log transformation
+min_val = min(df_MWlongNEE$flux_value)
+df_MWlongNEE$flux_shifted = log(df_MWlongNEE$flux_value - min_val + 1)
+
+# Or Yeo-Johnson transformation (handles negative values)
+library(bestNormalize)
+transformer <- yeojohnson(df_MWlongNEE$flux_value)
+df_MWlongNEE$flux_transformed <- transformer$x.t
+
+#testing it with gls model 
+MW.NEE.final_trnsf <- gls(flux_transformed ~ landscape_position + soil_temp_10_cm + thawdepth + VWC, 
+                           weights = varIdent(form = ~ 1| landscape_position),
+                          data = df_MWlongNEE, method = "REML", na.action = na.omit)
+anova(MW.NEE.final_trnsf)
+
+#Normality of residuals 
+# Extract standardized/normalized residuals
+std_resid_trnsf <- residuals(MW.NEE.final_trnsf, type = "normalized")
+
+# Graphical assessment
+par(mfrow = c(1, 2))
+# Histogram of residuals
+hist(std_resid_trnsf, main = "Histogram of Standardized Residuals", 
+     xlab = "Standardized Residuals", freq = FALSE)
+curve(dnorm, add = TRUE, col = "red")
+
+# QQ plot
+qqnorm(std_resid_trnsf, main = "Normal Q-Q Plot")
+qqline(std_resid_trnsf, col = "red")
+
+# Normality 
+shapiro_test <- shapiro.test(std_resid_trnsf)
+print(shapiro_test) #shifted: p = 0.001 -> not normal 
+#transformed: p = 0.001, not normal 
+
+
+#homogeneity of variance 
+# Levene’s Test for Homogeneity of Variance
+library(car)
+leveneTest(std_resid_trnsf ~ df_MWlongNEE$landscape_position) 
+#shifted: p = 0.72, ok 
+#transformed: p = 0.72, ok 
+
+#Same results for hifted and transformed data...not normal, need to use non-parametric or some combo
+
+```
+
+
+#Non-parametric approach 
+
+#### Important to note KW test is the non-parametric equivalent of a one-way anova, so it can only test one variable at a time, and can't test continuous/numeric variables. It also can't incorporate a variance structure. Spearman Correlation can be used for continuous variables* 
+```{r}
+# Test landscape position effect on NEE
+kruskal.test(flux_value ~ landscape_position, data = df_MWlongNEE) #p=0.25, not sig 
+#just testing the bins as factors, just curious
+kruskal.test(flux_value ~ thaw_bin, data = df_MWlongNEE) #p=0.13, not sig 
+kruskal.test(flux_value ~ soiltemp_bin, data = df_MWlongNEE) #0.03 *SIG********************* 
+kruskal.test(flux_value ~ VWC_bin, data = df_MWlongNEE) #0.46, not sig 
+
+# For continuous variables, use Spearman correlation
+cor.test(df_MWlongNEE$flux_value, df_MWlongNEE$thawdepth, method = "spearman") #p=0.0089, SIG************
+cor.test(df_MWlongNEE$flux_value, df_MWlongNEE$soil_temp_10_cm, method = "spearman") #p=0.003, SIG******
+cor.test(df_MWlongNEE$flux_value, df_MWlongNEE$VWC, method = "spearman") #p=0.65, not sig 
+#The spearman results match the findings from the final gls model 
+```
+
+#Robust Regression - less sensitive to violations of normality but cannot incorporate variance structure**
+```{r}
+library(MASS)
+robust_model <- rlm(flux_value ~ landscape_position + soil_temp_10_cm + 
+                   thawdepth + VWC, data = df_MWlongNEE)
+summary(robust_model) #Generally, t-values > |2| suggest significance at approximately the 0.05 level, only soil temp is over 2
+anova(robust_model) #doesn't show p but shows F-stat
+
+# Extract coefficients and t-values
+coefs <- coef(robust_model)
+t_vals <- c(-2.9119, 1.5749, 2.7041, 0.2993, 1.4269) # From rlm output
+df <- 17 # Degrees of freedom from rlm and anova output 
+
+# Calculate p-values from t-stat
+p_values <- 2 * pt(abs(t_vals), df, lower.tail = FALSE)
+names(p_values) <- names(coefs)
+print(p_values) #If this was done correctly, soil temp p=0.015 SIG; the others are not sig 
+```
+#non-parametric tests - GEE (generalized estimating equations) - can include continuous and factor variables, can incorporate var structure 
+```{r}
+library(geepack)
+gee_model <- geeglm(flux_value ~ landscape_position + soil_temp_10_cm + 
+                   thawdepth + VWC, data = df_MWlongNEE, 
+                   id = landscape_position, corstr = "unstructured")
+summary(gee_model)
+
+#Results: 
+#exchangeable 
+# Coefficients:
+#                            Estimate    Std.err  Wald Pr(>|W|)   
+# (Intercept)              -4.077e-05  1.607e-05 6.435  0.01119 * 
+# landscape_positionupland  6.822e-06  1.418e-05 0.231  0.63044   
+# soil_temp_10_cm           1.772e-06  6.425e-07 7.603  0.00583 **
+# thawdepth                 3.235e-07  1.801e-07 3.225  0.07253 . 
+# VWC                      -4.279e-08  2.134e-07 0.040  0.84108   
+
+#compare correlation structures: exchangeable means pairs of responses within a group are equally correlated; unstructured allows all correlations to freely var
+gee_exch <- geeglm(flux_value ~ landscape_position + soil_temp_10_cm + 
+                  thawdepth + VWC, data = df_MWlongNEE, 
+                  id = landscape_position, corstr = "exchangeable")
+
+gee_unstr <- geeglm(flux_value ~ landscape_position + soil_temp_10_cm + 
+                   thawdepth + VWC, data = df_MWlongNEE, 
+                   id = landscape_position, corstr = "unstructured")
+
+#smaller QIC is better - the exchangeable has lower QIC
+QIC(gee_exch)
+QIC(gee_unstr)
+```
+#Trying non-parametric with gls model combo - gls with var structure + bootstrapping 
+```{r}
+library(boot)
+boot_function <- function(data, indices) {
+  d <- data[indices,]
+  fit <- gls(flux_value ~ landscape_position + soil_temp_10_cm + 
+            thawdepth + VWC, data = d, method = "REML")
+  return(coef(fit))
+}
+
+boot_results <- boot(data = df_MWlongNEE, statistic = boot_function, R = 1000)
+boot.ci(boot_results, type = "perc", index = 3)  # For thawdepth coefficient
+
+
+
+library(boot)
+boot_function <- function(data, indices) {
+  d <- data[indices,]
+  fit <- gls(flux_value ~ landscape_position + soil_temp_10_cm + 
+            thawdepth + VWC, data = d, method = "REML")
+  return(coef(fit))
+}
+
+boot_results <- boot(data = df_MWlongNEE, statistic = boot_function, R = 1000)
+
+# Get CIs for each coefficient
+for(i in 1:length(coef(model_MW_full))) {
+  print(names(coef(model_MW_full))[i])
+  print(boot.ci(boot_results, type = "perc", index = i))
+}
+
+
+
+library(boot)
+boot_function <- function(data, indices) {
+  d <- data[indices,]
+  fit <- gls(flux_value ~ landscape_position + soil_temp_10_cm + 
+             thawdepth + VWC, 
+             weights = varIdent(form = ~1|landscape_position),
+             data = d, method = "REML")
+  return(coef(fit))
+}
+
+boot_results <- boot(data = df_MWlongNEE, statistic = boot_function, R = 1000)
+
+# Get 95% CI for coefficients
+for(i in 1:length(coef(model_MW_full))) {
+  cat(names(coef(model_MW_full))[i], ":\n")
+  print(boot.ci(boot_results, type = "perc", index = i))
+}
+
+```
+
+
 
 
 
