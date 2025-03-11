@@ -506,21 +506,63 @@ leveneTest(std_resid ~ df_MWlongNEE$landscape_position) #p=0.7; this says it's o
 
 #Stats with final model
 ```{r}
-# Final MW NEE model: remove thawdepth and VWC - refit with REML 
-MW.NEE.final <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
+
+# Final MW NEE model: keep all variables except for inundated -  refit with REML 
+MW.NEE.final <- gls(flux_value ~ landscape_position + soil_temp_10_cm + thawdepth + VWC, 
                            weights = varIdent(form = ~ 1| landscape_position),
                           data = df_MWlongNEE, method = "REML", na.action = na.omit)
 anova(MW.NEE.final)
-#sig diff in lanpost (p<0.01) and soil temp marginal (p=0.048)
+#sig diff in soil temp & thaw depth (p<0.001); land pos p=0.12; VWC p = 0.28)
 
-library(emmeans)
-emmeans(MW.NEE.final, adjust = "Tukey", pairwise ~ landscape_position) #p=0.027 - only upland and lowland  
+```
+#Exploring thaw depth and NEE / binning?
+```{r}
+library(ggplot2)
+
+# Basic scatterplot with smoothed fit line
+ggplot(df_MWlongNEE, aes(x = thawdepth, y = flux_value)) +
+  geom_point() +
+  geom_smooth(method = "loess") +
+  theme_minimal() +
+  labs(title = "NEE vs Thaw Depth in MW Plots",
+       x = "Thaw Depth", y = "NEE Flux")
+
+# Faceted by landscape position to see if the relationship varies
+ggplot(df_MWlongNEE, aes(x = thawdepth, y = flux_value)) +
+  geom_point() +
+  geom_smooth(method = "loess") +
+  facet_wrap(~landscape_position) +
+  theme_minimal()
 
 
-gls.MW.NEE.soiltemp = gls(flux_value ~ soil_temp_10_cm, data = df_MWlongNEE, method = 'ML', na.action=na.exclude)
-anova(gls.MW.NEE.soiltemp) #no sig diff, p = 0.13
+library(effects)
+
+# Get effect of thaw depth while holding other variables constant
+thaw_effect <- Effect("thawdepth", MW.NEE.final)
+plot(thaw_effect)
 ```
 
+```{r}
+# Create bins based on quantiles (equal number of observations)
+df_MWlongNEE$thaw_bin <- cut(df_MWlongNEE$thawdepth, 
+                            breaks = quantile(df_MWlongNEE$thawdepth, 
+                                             probs = c(0, 0.33, 0.67, 1)),
+                            labels = c("Shallow", "Medium", "Deep"),
+                            include.lowest = TRUE)
+
+# Test differences in NEE between bins
+thaw_bin_model <- gls(flux_value ~ thaw_bin + landscape_position + 
+                soil_temp_10_cm + VWC,
+                 weights = varIdent(form = ~ 1| landscape_position),
+                data = df_MWlongNEE, method = "REML")
+anova(thaw_bin_model)
+summary(thaw_bin_model)
+
+# Visualize
+boxplot(flux_value ~ thaw_bin, data = df_MWlongNEE)
+
+
+```
 
 
 
