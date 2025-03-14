@@ -413,8 +413,15 @@ anova(model_soiltemp, model_soiltempVWC, model_thawdepth, model_thawdepthVWC) #c
 MW.NEE.final <- gls(flux_value ~ landscape_position + soil_temp_10_cm + VWC, 
                  weights = varIdent(form = ~1|landscape_position),
                  data = df_MWlongNEE, method = "REML")
-summary(MW.NEE.final) #shows landpos, soil temp, and VWC are sig
-anova(MW.NEE.final)
+summary(MW.NEE.final) #shows landpos (p=0.021), soil temp, and VWC (p<0.001) are sig
+Anova(MW.NEE.final) #all sig 
+Anova(MW.NEE.final, type = "II", test.statistic = "F") #all sig 
+# Using the standard anova function with F tests
+anova(MW.NEE.final, type = "marginal", test = TRUE) #all sig 
+
+library(lsmeans)
+lsmeans(MW.NEE.final, adjust = "Tukey", pairwise ~ landscape_position) #p=0.0218 - SIG
+
 ```
 
 #Step 7: Test for multicollinearity in model 
@@ -430,7 +437,7 @@ Plot model residuals and QQplot
 #plot model residuals (homogeneity of variance)
 plot(MW.NEE.final)
 
-#qqplot to verify normality
+#qqplot to verify normality - this plots the actual model, not the residuals 
 qqnorm(MW.NEE.final)
 
 #checking how this QQ plot compares to plots created with normally distributed residuals
@@ -455,9 +462,10 @@ for(i in 1:24){
 #doesn't look awful, doesn't look great....have Kyle take a look 
 
 #comparing data QQplot to a normal QQplot and hist 
-qqnorm(residuals(MW.NEE.final))
+qqnorm(residuals(MW.NEE.final)) #normality of residuals 
 hist(residuals(MW.NEE.final)) 
 car::qqPlot(x = residuals(MW.NEE.final)) #shows where residuals breach normal distr
+qqPlot(residuals(MW.NEE.final))
 
 ```
 
@@ -490,8 +498,9 @@ print(shapiro_test) #for gls final model: p=0.001; normality NOT supported
 residuals_gls <- residuals(MW.NEE.final, type = "normalized")
 
 # Plot the autocorrelation function
-acf(residuals_gls, main = "Autocorrelation of Residuals") #want bars of Lag1 and higher to be below the blue-dotted lines of confidence -- ignore Lag0 ** 
-#Result: no apparent autocorrelation -- Lag0 represents correlation of residuals with themselves and is always ~1, so this isn't useful and isn't a problem. Lag 1 shows corr between each residual and the prev residual, lag 2 = correlation between resisuals 2 steps apart, etc. **Focus on Lag1 and higher*
+acf(residuals_gls, main = "Autocorrelation of Residuals") #want bars of Lag1 and higher to be below the blue-dotted lines of confidence -- ignore Lag0 ** Lag0 represents correlation of residuals with themselves and is always ~1, so this isn't useful and isn't a problem. Lag 1 shows corr between each residual and the prev residual, lag 2 = correlation between resisuals 2 steps apart, etc. **Focus on Lag1 and higher* 
+
+#Result: no apparent autocorrelation -- 
 #All bars below the confidence interval dotted line = ok
 
 # Compute lag-1 correlation in residuals - values close to 0 = little/no autocorrelation; value near 1 or -1 suggests sig correlation
@@ -538,8 +547,6 @@ library(car)
 leveneTest(std_resid ~ df_MWlongNEE$landscape_position) #p=0.7; this says it's ok 
 
 ```
-
-
 #Cook's distance for potential outlier - measure of the influence each observation has on predicted values of a regression model. Considers how far the point is from mean of the predictor variables (leverage) and how far the point is from the predicted value (residual). A high value means an obs has strong influence on regression results; values greater than 1 are considered concerning (potential outlier) and values larger than 4/n (n=sample size) need looking into. 
 ```{r}
 library(influence.ME)  
@@ -599,8 +606,9 @@ for(i in 1:length(top_influential)) {
   cat(sprintf("Index %d: %.6f\n", top_influential[i], cook_d_gls[top_influential[i]]))
 }
 ```
-#Visualizing influential points - table and fig 
 
+
+#Visualizing influential points - table and fig 
 ```{r}
 #Table with Cook's D for each variable 
 
@@ -684,7 +692,7 @@ text(df_MWlongNEE$VWC[top_influential],
 #These images show that the main outlier is from the very low NEE fluxes in row 1 of dataset * but since it doesn't seem to violate Cook's D, it's probably not a true outlier, and therefore I'm choosing to keep it for now. 
 ```
 
-#Stats with final model
+#Stats with final model - because the QQplot is very close to a normal distr, and there's one main outlier throwing off the fit from a small sample size (n=22), going to compare these stats to the robust regression and cross-validate with KW/Spearman one-way tests 
 ```{r}
 
 # Final MW NEE model: keep all variables except for inundated -  refit with REML 
@@ -692,10 +700,10 @@ MW.NEE.final <- gls(flux_value ~ landscape_position + soil_temp_10_cm + VWC,
                            weights = varIdent(form = ~ 1| landscape_position),
                           data = df_MWlongNEE, method = "REML", na.action = na.omit)
 summary(MW.NEE.final) #shows landpos, soil temp, and VWC are sig
-anova(MW.NEE.final)
-#sig diff in soil temp & VWC (p<0.001) but landpos p=0.12
+anova(MW.NEE.final)#sig diff in soil temp & VWC (p<0.001) but landpos p=0.12
 
-
+library(lsmeans)
+lsmeans(MW.NEE.final, adjust = "Tukey", pairwise ~ landscape_position) #p=0.0218 - SIG
 
 
 ```
@@ -788,6 +796,8 @@ summary(VWC_bin_model)
 boxplot(flux_value ~ VWC_bin, data = df_MWlongNEE) #no huge variation with VWC bins
 
 ```
+
+
 #Boxplot of NEE and landpos
 ```{r}
 # Visualize
@@ -850,13 +860,18 @@ leveneTest(std_resid_trnsf ~ df_MWlongNEE$landscape_position)
 ```{r}
 # Test landscape position effect on NEE
 kruskal.test(flux_value ~ landscape_position, data = df_MWlongNEE) #p=0.25, not sig 
+
+#wilcoxon test
+# For comparing two landscape positions (unpaired)
+wilcox.test(flux_value ~ landscape_position, 
+            data = df_MWlongNEE,
+            subset = landscape_position %in% c("upland", "lowland"))
 # #just testing the bins as factors, just curious
 # kruskal.test(flux_value ~ thaw_bin, data = df_MWlongNEE) #p=0.13, not sig 
 # kruskal.test(flux_value ~ soiltemp_bin, data = df_MWlongNEE) #0.03 *SIG********************* 
 # kruskal.test(flux_value ~ VWC_bin, data = df_MWlongNEE) #0.46, not sig 
 
 # For continuous variables, use Spearman correlation
-cor.test(df_MWlongNEE$flux_value, df_MWlongNEE$thawdepth, method = "spearman") #p=0.0089, SIG************
 cor.test(df_MWlongNEE$flux_value, df_MWlongNEE$soil_temp_10_cm, method = "spearman") #p=0.003, SIG******
 cor.test(df_MWlongNEE$flux_value, df_MWlongNEE$VWC, method = "spearman") #p=0.65, not sig 
 #The spearman results match the findings from the final gls model 
@@ -865,14 +880,14 @@ cor.test(df_MWlongNEE$flux_value, df_MWlongNEE$VWC, method = "spearman") #p=0.65
 #Robust Regression - less sensitive to violations of normality but cannot incorporate variance structure**
 ```{r}
 library(MASS)
-robust_model <- rlm(flux_value ~ landscape_position + soil_temp_10_cm + 
-                   thawdepth + VWC, data = df_MWlongNEE)
+robust_model <- rlm(flux_value ~ landscape_position + soil_temp_10_cm + VWC, 
+                    data = df_MWlongNEE)
 summary(robust_model) #Generally, t-values > |2| suggest significance at approximately the 0.05 level, only soil temp is over 2
 anova(robust_model) #doesn't show p but shows F-stat
 
 # Extract coefficients and t-values
 coefs <- coef(robust_model)
-t_vals <- c(-2.9119, 1.5749, 2.7041, 0.2993, 1.4269) # From rlm output
+t_vals <- c(-3.1546503, 1.7078290, 3.7032764,  1.7204622) # From rlm output
 df <- 17 # Degrees of freedom from rlm and anova output 
 
 # Calculate p-values from t-stat
@@ -880,23 +895,39 @@ p_values <- 2 * pt(abs(t_vals), df, lower.tail = FALSE)
 names(p_values) <- names(coefs)
 print(p_values) #If this was done correctly, soil temp p=0.015 SIG; the others are not sig 
 ```
-#non-parametric tests - GEE (generalized estimating equations) - can include continuous and categorical predictors, can incorporate var structure 
+#Anova for robust regression 
+```{r}
+# Assuming you've already run your robust regression model
+robust_model <- rlm(flux_value ~ landscape_position + soil_temp_10_cm + VWC, 
+                   data = df_MWlongNEE)
+summary(robust_model)
+Anova(robust_model, type = "II") #use Anova here, anova is mainly for lm, glm, and some other model types. Anova from car package is designed to handle a wider variety of models, including robust regression, so this is the one we want to use. **only chi-sqr available for robust regression from MASS package* 
+
+```
+#Additional exploratory non-parametric approaches...not sure I'll use these....*Ask Kyle
+
+
+#GEE (generalized estimating equations) - can include continuous and categorical predictors, can incorporate var structure 
 ```{r}
 library(geepack)
-gee_model <- geeglm(flux_value ~ landscape_position + soil_temp_10_cm + 
-                   thawdepth + VWC, data = df_MWlongNEE, 
+gee_model <- geeglm(flux_value ~ landscape_position + soil_temp_10_cm + VWC, 
+                    data = df_MWlongNEE, 
                    id = landscape_position, corstr = "unstructured")
 summary(gee_model)
+anova(gee_model, type = "marginal", test = TRUE)
 
-#Results: 
-#exchangeable 
-# Coefficients:
-#                            Estimate    Std.err  Wald Pr(>|W|)   
-# (Intercept)              -4.077e-05  1.607e-05 6.435  0.01119 * 
-# landscape_positionupland  6.822e-06  1.418e-05 0.231  0.63044   
-# soil_temp_10_cm           1.772e-06  6.425e-07 7.603  0.00583 **
-# thawdepth                 3.235e-07  1.801e-07 3.225  0.07253 . 
-# VWC                      -4.279e-08  2.134e-07 0.040  0.84108   
+#Results:
+# Analysis of 'Wald statistic' Table
+# Model: gaussian, link: identity
+# Response: flux_value
+# Terms added sequentially (first to last)
+# 
+#                    Df        X2 P(>|Chi|)    
+# landscape_position  1    331011   < 2e-16 ***
+# soil_temp_10_cm     1        10   0.00163 ** 
+# VWC                 1 115086160   < 2e-16 ***
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
 #compare correlation structures: exchangeable means pairs of responses within a group are equally correlated; unstructured allows all correlations to freely var
 gee_exch <- geeglm(flux_value ~ landscape_position + soil_temp_10_cm + 
@@ -917,7 +948,7 @@ QIC(gee_unstr)
 library(mgcv)
 
 # Simple version without weighted var structure 
-MW.NEE.gam <- gam(flux_value ~ landscape_position + s(soil_temp_10_cm) + s(thawdepth) + s(VWC), 
+MW.NEE.gam <- gam(flux_value ~ landscape_position + s(soil_temp_10_cm) + s(VWC), 
                   data = df_MWlongNEE, 
                   method = "REML", 
                   na.action = na.omit)
@@ -949,54 +980,5 @@ MW.NEE.qr <- rq(flux_value ~ landscape_position + soil_temp_10_cm + thawdepth + 
 summary(MW.NEE.qr)
 #Results: confidence intervals essentially at 0 so suggests there's no meaningful effect...? this one feels wonky, I don't understand it well enough to know what might be wrong or how to adjust it...
 ```
-
-
-#Robust regression
-```{r}
-library(MASS)
-
-MW.NEE.rlm <- rlm(flux_value ~ landscape_position + soil_temp_10_cm + thawdepth + VWC, 
-                  data = df_MWlongNEE, 
-                  na.action = na.omit)
-
-summary(MW.NEE.rlm) 
-#Results: all coeffs = 0......wtf
-
-#expand the view so you can see the full value of the coeffs
-summary(MW.NEE.rlm)$coefficients
-# or
-options(digits=10)
-summary(MW.NEE.rlm)
-
-#Extract p-values based on t-stat and df
-# For your specific t-values with 17 degrees of freedom
-t_values <- c(-2.9119, 1.5749, 2.7041, 0.2993, 1.4269)
-variable_names <- c("Intercept", "landscape_positionupland", "soil_temp_10_cm", "thawdepth", "VWC")
-
-# Calculate two-sided p-values
-p_values <- 2 * pt(abs(t_values), df = 17, lower.tail = FALSE)
-
-# Create a data frame with the results
-result_table <- data.frame(
-  Variable = variable_names,
-  t_value = t_values,
-  p_value = p_values
-)
-
-# Print the result
-result_table
-#Result: soil temp is sig, p = -.015; others not sig * --> this matches the results of the final gls model EC.NEE.final 
-```
-
-
-
-
-
-
-
-
-
-
-
 
 
