@@ -266,8 +266,6 @@ bptest(simple_model)
 
 ####Pearson's Corr - parametric (incorrect, but leaving for when there is a parametric dataset)
 ```{r}
-#Couldn't run the full gls model due to singularity - checked for collinearity and it seems all upland plots are not inundated and all lowland plots are inundated, creating a perfect correlation. Need to simplify the model to remove inundated* 
-
 # Check for correlations between numeric predictors - this uses Pearson correlation, which assumes linear relationships and normal distribution among variables
 cor_matrix <- cor(df_EClongNEE[c("soil_temp_10_cm", "thawdepth", "VWC")], 
                  use = "complete.obs")
@@ -275,15 +273,16 @@ print(cor_matrix) #this showed no correlations, BUT it was the incorretc test to
 ```
 
 #Non-parametric tests of correlations - spearman's correlation 
+
+#Corr of continuous variables 
 ```{r}
-#Correlation between soil temp and thaw depth 
+#Correlation between soil temp, thaw depth, and VWC
 
 cor.test(df_EClongNEE$soil_temp_10_cm, df_EClongNEE$thawdepth, method="spearman")#p<0.04, SIG* --> shows soil temp and thaw depth are capturing most of the same information / are correlated and one should be removed 
 cor.test(df_EClongNEE$soil_temp_10_cm, df_EClongNEE$VWC, method="spearman") #p=0.2, not sig, not correlated 
 cor.test(df_EClongNEE$thawdepth, df_EClongNEE$VWC, method="spearman") #p=0.11, not sig, not correlated 
 
 ```
-
 
 #Checking correlation in categorical variables 
 ```{r}
