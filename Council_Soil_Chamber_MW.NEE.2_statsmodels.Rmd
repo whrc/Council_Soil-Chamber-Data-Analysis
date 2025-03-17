@@ -267,7 +267,7 @@ bptest(simple_model)
 # Check for correlations between numeric predictors - this uses Pearson correlation, which assumes linear relationships and normal distribution among variables
 cor_matrix <- cor(df_MWlongNEE[c("soil_temp_10_cm", "thawdepth", "VWC")], 
                  use = "complete.obs")
-print(cor_matrix) #this showed no correlations, BUT it was the incorretc test to use, as some of my data was not normally distirbuted*** that's why the spearman correlation tests below did highlight correlations missed in the cor_matrix 
+print(cor_matrix) #this showed no correlations, BUT it was the incorretc test to use, as some of my data was not normally distributed*** that's why the spearman correlation tests below did highlight correlations missed in the cor_matrix 
 ```
 
 #Non-parametric tests of correlations - spearman's correlation 
