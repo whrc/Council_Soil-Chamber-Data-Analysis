@@ -278,6 +278,7 @@ cor.test(df_MWlongNEE$soil_temp_10_cm, df_MWlongNEE$thawdepth, method="spearman"
 cor.test(df_MWlongNEE$soil_temp_10_cm, df_MWlongNEE$VWC, method="spearman") #not sig,not correlated 
 cor.test(df_MWlongNEE$thawdepth, df_MWlongNEE$VWC, method="spearman") #not sig,not correlated 
 
+#Soil temp and thawdepth are correlated and one should be removed*
 ```
 
 
@@ -319,7 +320,7 @@ model_VWC <- gls(flux_value ~ landscape_position + VWC,
 # Compare with AIC/BIC
 AIC(model_temp, model_thaw, model_VWC) #model_temp has lower AIC, but not by much
 BIC(model_temp, model_thaw, model_VWC) #model_temp has lower BIC 
-#model-VWC least best predictor 
+#model_VWC least best predictor 
 #choose to keep soil temp and remove thawdepth
 ```
 #Step 2: Now, test whether VWC imrpoves model or not 
