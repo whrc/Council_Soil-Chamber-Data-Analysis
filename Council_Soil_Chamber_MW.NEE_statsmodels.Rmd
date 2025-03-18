@@ -54,7 +54,7 @@ df_NEE_RECO2 = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Counci
 #calculated GPP (NEE - Reco)
 df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_NEE_RECO2_GPP_2017to2019.csv')
 
-
+str(df_MWlongNEE)
 ```
 
 
@@ -83,48 +83,23 @@ df_long <- df_NEE_RECO2_GPP %>%
 
 ####Create new df for each plot type for analysis 
 ```{r}
-#Filter & make separate datasets for each plot_ID = "EC" "MW" and "BGC", and by flux type (GPP, NEE, RECO)
-
-#EC - eddy covar tower plot types 
-df_EClong <- df_long %>%
-  filter(plot_type == "EC")
+#Make dataset for just MW plottype 
 
 #MW - moisture warming plot types 
 df_MWlong <- df_long %>%
   filter(plot_type == "MW")
 
-#BGC - biogeochem plot types 
-df_BGClong <- df_long %>%
-  filter(plot_type == "BGC")
-
-#GPP
-df_GPP <-df_long %>%
-  filter(flux_type == "GPP")
-
-#NEE
-df_NEE <-df_long %>%
-  filter(flux_type == "NEE")
-
-#RECO
-df_RECO <-df_long %>%
-  filter(flux_type == "RECO")
-
-
-
 #Re-arrange by flux type (NEE, GPP, RECO) so you can analyze more easily 
 
 # Sort the dataframe by the flux_type column 
 df_EClong <- df_EClong %>% arrange(flux_type)
-df_MWlong <- df_MWlong %>% arrange(flux_type)
-df_BGClong <- df_BGClong %>% arrange(flux_type)
+
 
 ```
 
-#Break NEE up by plot type 
-
-# MW NEE - Variance and normality
+#Filter by NEE 
 ```{r}
-# Calculate variance within groups
+#create a dataset with only NEE, and make sure it uses complete cases 
 df_MWlongNEE <- df_MWlong %>%
   filter(flux_type == "NEE")
 
@@ -132,6 +107,11 @@ sum(is.na(df_MWlongNEE$flux_value)) #check for 0's, in this one all the variable
 # Look for missing values & remove / create complete cases dataset if needed
 any(is.na(df_MWlongNEE[, c("flux_value", "landscape_position", "inundated", 
                            "soil_temp_10_cm", "thawdepth", "VWC")]))
+```
+
+# Categorical Predictors: Variance and normality of categorical predictor variables 
+```{r}
+# Look at variance and normality within categorical predictor variables 
 
 #Flux and landscape pos
 df_variance_landpos <- df_MWlongNEE %>%
@@ -170,7 +150,7 @@ shapiro_test <- shapiro.test(df_MWlongNEE$flux_value)
 print(shapiro_test) #p=0.005, does NOT conform to normality assumptions 
 
 
-# Test normality within each landscape position
+# Test normality within each landscape position --> for categorical data, test for normality of the response variable (NEE) within each group defined by the categorical variable
 df_MWlongNEE %>%
   group_by(landscape_position) %>%
   summarize(
@@ -180,7 +160,7 @@ df_MWlongNEE %>%
 #Results: lowland = yes; upland = no
 
 
-# Test normality based on inundated
+# Test normality based on inundated --> for categorical data, test for normality of the response variable (NEE) within each group defined by the categorical variable
 df_MWlongNEE %>%
   group_by(inundated) %>%
   summarize(
@@ -219,7 +199,7 @@ ggplot(df_MWlongNEE, aes(x = flux_value, fill = inundated)) +
 # p ≤ 0.05: Variances are not homogeneous.
 library(car)
 
-# Test homogeneity of variance for all main factors
+# Test homogeneity of variance for categorical predictor factors
 leveneTest(flux_value ~ landscape_position, data = df_MWlongNEE) #p=0.15, homogeneity of var is ok
 leveneTest(flux_value ~ inundated, data = df_MWlongNEE)#p = 0.15, ok
 
@@ -227,55 +207,223 @@ leveneTest(flux_value ~ inundated, data = df_MWlongNEE)#p = 0.15, ok
 #for interactions
 leveneTest(flux_value ~ landscape_position * inundated, data = df_MWlongNEE) #p=0.15, ok
 
+```
+
+#Continuous predictors: Variance and normality of continuous predictor variables 
+
+###Testing to see which kind of correlation to use: Pearson for parametric, Spearman for non-parametric
+```{r}
+#test distribution normality of each numeric predictor variable 
+shapiro.test(df_MWlongNEE$soil_temp_10_cm) #p=0.13, normal 
+shapiro.test(df_MWlongNEE$thawdepth) #p = <0.001, NOT normal *
+shapiro.test(df_MWlongNEE$VWC) #p=0.264, normal 
+
+#visualize pairs to see if it looks linear
+pairs(df_MWlongNEE[c("soil_temp_10_cm", "thawdepth", "VWC")]) #NOPE 
+
+#So this means for correlations and looking at collinearity, I need to use non-parametric tests 
+
+
+#Check homogeneity of variance: should see even spread of of points for homogeneity of variance 
+
+# Fit a simple model
+simple_model <- lm(flux_value ~ VWC, data = df_MWlongNEE)
+
+# Extract fitted values and residuals
+fitted_values <- fitted(simple_model)
+residuals <- residuals(simple_model)
+
+# Plot residuals vs. predictor
+plot(df_MWlongNEE$VWC, residuals, 
+     xlab = "Cont. Pred. Var", ylab = "Residuals",
+     main = "Residuals vs. Thaw Depth")
+abline(h = 0, lty = 2)
+
+# Create a scale-location plot --> should be randomly scattered with a relatively flat trend line (red) for homogeneity of variance 
+plot(simple_model, which = 3)
+
+#thawdepth = not a great spread, no flat trendline, probably not homogeneous 
+#soil temp = looks ok with spread, trendline a little bowed but relatively flat 
+#VWC = spread looks ok, trendlind has a bit of a hump like for thawdepth...
+
+#Breusch-Pagan test - specifically tests if variance of residuals is constant - want a p > 0.05 for homogeneity of var
+library(lmtest)
+bptest(simple_model)
+
+#thawdepth = p=0.56, shows there is homogeneity of var 
+#soil temp = p = 0.9, suggests homogeneity of var 
+#VWC = p = 0.61, suggests homogeneity of var 
 
 ```
-#Testing models for MW NEE -- dataset already in complete cases for EC 
-#Checking colinearity 
+#Checking colinearity / correlations to determine which variables to use for models 
+
+
+####I used Pearson corr for parametric distributions first, mistkanely - left code/results in for reference, but moved on to use Spearman, the non-parametric corr test, and need to rebuild the models based on these results**
+
+####Pearson's Corr - parametric (incorrect, but leaving for when there is a parametric dataset)
 ```{r}
 #Couldn't run the full gls model due to singularity - checked for collinearity and it seems all upland plots are not inundated and all lowland plots are inundated, creating a perfect correlation. Need to simplify the model to remove inundated* 
 
-# Check for correlations between numeric predictors
+# Check for correlations between numeric predictors - this uses Pearson correlation, which assumes linear relationships and normal distribution among variables
 cor_matrix <- cor(df_MWlongNEE[c("soil_temp_10_cm", "thawdepth", "VWC")], 
                  use = "complete.obs")
-print(cor_matrix)
+print(cor_matrix) #this showed no correlations, BUT it was the incorretc test to use, as some of my data was not normally distirbuted*** that's why the spearman correlation tests below did highlight correlations missed in the cor_matrix 
+```
 
-# Check for separation in categorical variables
-table(df_MWlongNEE$landscape_position, df_MWlongNEE$inundated)
+#Non-parametric tests of correlations - spearman's correlation 
+```{r}
+#Correlation between soil temp and thaw depth 
+
+cor.test(df_MWlongNEE$soil_temp_10_cm, df_MWlongNEE$thawdepth, method="spearman")#p<0.05, SIG* --> shows soil temp and thaw depth are capturing most of the same information / are correlated and one should be removed 
+cor.test(df_MWlongNEE$soil_temp_10_cm, df_MWlongNEE$VWC, method="spearman") #not sig,not correlated 
+cor.test(df_MWlongNEE$thawdepth, df_MWlongNEE$VWC, method="spearman") #not sig,not correlated 
+
 ```
 
 
-
-####Testing whether random effect plot_ID should be included or not 
+#Checking correlation in categorical variables 
 ```{r}
-#Make plot_ID, inundated, landscape_position as factor so they'll work with gls
-df_MWlongNEE$plot_ID = factor(df_MWlongNEE$plot_ID)
-df_MWlongNEE$landscape_position = factor(df_MWlongNEE$landscape_position)
-df_MWlongNEE$inundated = factor(df_MWlongNEE$inundated)
+# Check for separation in categorical variables
+table(df_MWlongNEE$landscape_position, df_MWlongNEE$inundated) #all upland is N, all lowland = Y; highly correlated, should remove one of these variables 
 
 
+# Create contingency table to examine correlation quantitatively / confirm the separation test above 
+cont_table <- table(df_MWlongNEE$landscape_position, df_MWlongNEE$inundated)
+print(cont_table)
+
+# Test for association
+chisq.test(cont_table) #p<0.001 --> shows correlation
+# Or for small sample sizes
+fisher.test(cont_table) #p<0.001, shows correlation 
+
+# # Measure strength (if you have the vcd package)
+# library(vcd)
+# assocstats(cont_table)
+```
+
+#Testing models for MW NEE -- use complete cases 
+
+#Step 1: Determine which of the correlated variables to keep
+```{r}
+# Create competing models with one variable at a time - use "ML" to compare models, use "REML" for fitting final model 
+#soil temp and thaw depth were correlated 
+model_temp <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
+                 data = df_MWlongNEE, method = "ML")
+
+model_thaw <- gls(flux_value ~ landscape_position + thawdepth, 
+                 data = df_MWlongNEE, method = "ML")
+
+model_VWC <- gls(flux_value ~ landscape_position + VWC, 
+                 data = df_MWlongNEE, method = "ML")
+
+# Compare with AIC/BIC
+AIC(model_temp, model_thaw, model_VWC) #model_temp has lower AIC, but not by much
+BIC(model_temp, model_thaw, model_VWC) #model_temp has lower BIC 
+#model-VWC least best predictor 
+#choose to keep soil temp and remove thawdepth
+```
+#Step 2: Now, test whether VWC imrpoves model or not 
+```{r}
+# Keeping soil_temp and removing thawdepth 
+model_without_VWC <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
+                        data = df_MWlongNEE, method = "ML")
+
+model_with_VWC <- gls(flux_value ~ landscape_position + soil_temp_10_cm + VWC, 
+                     data = df_MWlongNEE, method = "ML")
+
+# Compare
+anova(model_without_VWC, model_with_VWC) #without has lower AIC/BIC but the p = 0.5, not sig...so go with the simpler model, and remove VWC, since it does not improve the model significantly 
+```
+#Step 3: Test if random effect of plot_ID is appropriate
+```{r}
+# #If not already: Make plot_ID, inundated, landscape_position as factor so they'll work with gls
+# df_MWlongNEE$plot_ID = factor(df_MWlongNEE$plot_ID)
+# df_MWlongNEE$landscape_position = factor(df_MWlongNEE$landscape_position)
+# df_MWlongNEE$inundated = factor(df_MWlongNEE$inundated)
+
+#Use best predictor variable from Step 1, which was soil temp 
 #use 'ML' for comparing models 
+
 library(nlme)
-#gls - no random effMWt
-gls.MW.NEE = gls(flux_value ~  landscape_position + soil_temp_10_cm + thawdepth + VWC, data = df_MWlongNEE, method = 'ML') #, na.action=na.exclude) --> don't need, already made dataset with complete cases
-anova(gls.MW.NEE) #marginal sig diff in soil temp, p = 0.05
+#gls - no random effect
+model_fixed <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
+                  data = df_MWlongNEE, method = "ML")
 
 #lme - with random effect of plot_ID
-lme.MW.NEE <- lme(flux_value ~ landscape_position + soil_temp_10_cm + thawdepth + VWC, 
-               random = ~1 | plot_ID, 
-               data = df_MWlongNEE, # na.action=na.exclude, --> don't need, already made dataset with complete cases
-               method = 'ML')
-anova(lme.MW.NEE) #soil temp sig diff, p <0.01
+model_random <- lme(flux_value ~ landscape_position + soil_temp_10_cm, 
+                   random = ~1|plot_ID, 
+                   data = df_MWlongNEE, method = "ML")
 
-#Comparing the models 
-anova(gls.MW.NEE, lme.MW.NEE) #p = 0.09, no improvement to model with random effect - so plot_ID random effect *NOT needed here 
+# Compare
+anova(model_fixed, model_random) #no sig diff and AIC/BIC nearly the same, p=0.1, so go for simpler model without random effect 
+```
+#Step 4: Test for variance structure 
+```{r}
+# test if adding a variance structure is appropriate 
+model_homoscedastic <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
+                          data = df_MWlongNEE, method = "ML")
 
+model_heteroscedastic <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
+                            weights = varIdent(form = ~1|landscape_position),
+                            data = df_MWlongNEE, method = "ML")
+
+# Compare
+anova(model_homoscedastic, model_heteroscedastic) #p=0.001; hetero has lower AIC/BIC and higher LogLik so we do use a variance structure here * 
+```
+#Step 5: Try adding VWC (or any remaining non-correlated variables) back in to see if it improves the model (use reduction and addition / reduced models to test if various un-correlated predicors improve the model or not, and favor the simpler model)
+```{r}
+# Assuming soil_temp was best and VWC is not strongly correlated with it
+model_1var <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_MWlongNEE, method = "ML")
+
+model_2var <- gls(flux_value ~ landscape_position + soil_temp_10_cm + VWC, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_MWlongNEE, method = "ML")
+
+# Compare
+anova(model_1var, model_2var) #model 2var has lower AIc/BIC and higher LogLik, p <0.001 * add VWC back in* 
+```
+#Step 6: Double check best correlated var was chosen, with and without extra var 
+```{r}
+#test soil temp and thawdepth, and with and without VWC
+
+model_soiltemp <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_MWlongNEE, method = "ML")
+
+model_soiltempVWC <- gls(flux_value ~ landscape_position + soil_temp_10_cm + VWC, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_MWlongNEE, method = "ML")
+
+model_thawdepth <- gls(flux_value ~ landscape_position + thawdepth, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_MWlongNEE, method = "ML")
+
+model_thawdepthVWC <- gls(flux_value ~ landscape_position + thawdepth + VWC, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_MWlongNEE, method = "ML")
+
+anova(model_soiltemp, model_soiltempVWC) #soiltempVWC better, p <0.001
+anova(model_thawdepth, model_thawdepthVWC) #no sig diff, p=0.1, AIC/BIC nearly the same 
+anova(model_soiltemp, model_soiltempVWC, model_thawdepth, model_thawdepthVWC) #confirmed model_soiltempVWC is best
+```
+#Final model, refit with REML
+```{r}
+MW.NEE.final <- gls(flux_value ~ landscape_position + soil_temp_10_cm + VWC, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_MWlongNEE, method = "REML")
+summary(MW.NEE.final) #shows landpos, soil temp, and VWC are sig
+anova(MW.NEE.final)
 ```
 
-####Multicollinearity in model- EC.NEE
+Step 7: Test for multicollinearity in model 
+####For testing this in models, use VIF test 
+
 ```{r}
 #variance inflation factor (vif) - vif = 1 = variables are not correlated; between 1 & 5 = moderately correlated,  5 or higher indicates highly correlated & multicollinearity among variables. GVIF is a generalized VIF for categorical variables with more than two levels; the adj VIF gives values for comparing across variables with diff degrees of freedom* --> look at both when assessing collinearity in a model 
 library(car)
-vif(gls.MW.NEE) # landpos = 4.3, thaw depth = 3.6, VWC = 3.7, soil temp = 2.1 ....so some moderate collinearity here...but below 5 so should be ok...but may want to remove VWC since it and lanpos are on the high side and likely correlated
+vif(MW.NEE.final) # all <2, so should be ok! 
 ```
 
 #### Variance Structre
@@ -399,11 +547,18 @@ anova(model.MW_noVWC, model.MW_nothawVWC) #ML:  p<0.001; noVWC better
 MW.NEE.final <- gls(flux_value ~ landscape_position + soil_temp_10_cm + thawdepth + VWC, 
                            weights = varIdent(form = ~ 1| landscape_position),
                           data = df_MWlongNEE, method = "REML", na.action = na.omit)
-anova(MW.NEE.final)
+anova(MW.NEE.final) #shows soil temp and thaw depth are sig p<0.05
+summary(MW.NEE.final) #shows only soil temp is sig 
 #sig diff in soil temp & thaw depth (p<0.001); land pos p=0.12; VWC p = 0.28)
 
 ```
-
+####Multicollinearity in final model- EC.NEE
+```{r}
+#variance inflation factor (vif) - vif = 1 = variables are not correlated; between 1 & 5 = moderately correlated,  5 or higher indicates highly correlated & multicollinearity among variables. GVIF is a generalized VIF for categorical variables with more than two levels; the adj VIF gives values for comparing across variables with diff degrees of freedom* --> look at both when assessing collinearity in a model 
+library(car)
+vif(MW.NEE.final) #thawdepth is 21.09, and VWC is 26, so definitely multicollinearity there! 
+```
+#***TO DO: rework final model to remove multicollinearity! 
 
 ####EC.NEE.final model - Plot model residuals and qqplot
 ```{r}
@@ -460,6 +615,21 @@ qqline(std_resid, col = "red")
 # Formal test
 shapiro_test <- shapiro.test(std_resid)
 print(shapiro_test) #for gls final model: p=0.001; normality NOT supported 
+
+```
+#Test autocorrelation
+```{r}
+# Extract normalized residuals from GLS model
+residuals_gls <- residuals(MW.NEE.final, type = "normalized")
+
+# Plot the autocorrelation function
+acf(residuals_gls, main = "Autocorrelation of Residuals") #want bars of Kag1 and higher to be below the blue-dotted lines of confidence -- ignore Lag0 ** 
+#Result: no apparent autocorrelation -- Lag0 represents correlation of residuals with themselves and is always ~1, so this isn't useful and isn't a problem. Lag 1 shows corr between each residual and the prev residual, lag 2 = correlation between resisuals 2 steps apart, etc. **Focus on Lag1 and higher*
+
+# Compute lag-1 correlation in residuals - values close to 0 = little/no autocorrelation; value near 1 or -1 suggests sig correlation
+cor(residuals_gls[-1], residuals_gls[-length(residuals_gls)]) 
+#Result: 0.102, suggests no autocorrelation
+
 
 ```
 
@@ -804,14 +974,15 @@ leveneTest(std_resid_trnsf ~ df_MWlongNEE$landscape_position)
 
 #Non-parametric approach 
 
-#### Important to note KW test is the non-parametric equivalent of a one-way anova, so it can only test one variable at a time, and can't test continuous/numeric variables. It also can't incorporate a variance structure. Spearman Correlation can be used for continuous variables* 
+#### Important to note KW test is the non-parametric equivalent of a one-way anova, so it can only test one variable at a time, and can't test continuous/numeric variables. It also can't incorporate a variance structure. Spearman Correlation can be used for continuous variables*
+#testing each var independently isn't ideal because it can't capture what might happen when other variables are included...
 ```{r}
 # Test landscape position effect on NEE
 kruskal.test(flux_value ~ landscape_position, data = df_MWlongNEE) #p=0.25, not sig 
-#just testing the bins as factors, just curious
-kruskal.test(flux_value ~ thaw_bin, data = df_MWlongNEE) #p=0.13, not sig 
-kruskal.test(flux_value ~ soiltemp_bin, data = df_MWlongNEE) #0.03 *SIG********************* 
-kruskal.test(flux_value ~ VWC_bin, data = df_MWlongNEE) #0.46, not sig 
+# #just testing the bins as factors, just curious
+# kruskal.test(flux_value ~ thaw_bin, data = df_MWlongNEE) #p=0.13, not sig 
+# kruskal.test(flux_value ~ soiltemp_bin, data = df_MWlongNEE) #0.03 *SIG********************* 
+# kruskal.test(flux_value ~ VWC_bin, data = df_MWlongNEE) #0.46, not sig 
 
 # For continuous variables, use Spearman correlation
 cor.test(df_MWlongNEE$flux_value, df_MWlongNEE$thawdepth, method = "spearman") #p=0.0089, SIG************
@@ -838,7 +1009,7 @@ p_values <- 2 * pt(abs(t_vals), df, lower.tail = FALSE)
 names(p_values) <- names(coefs)
 print(p_values) #If this was done correctly, soil temp p=0.015 SIG; the others are not sig 
 ```
-#non-parametric tests - GEE (generalized estimating equations) - can include continuous and factor variables, can incorporate var structure 
+#non-parametric tests - GEE (generalized estimating equations) - can include continuous and categorical predictors, can incorporate var structure 
 ```{r}
 library(geepack)
 gee_model <- geeglm(flux_value ~ landscape_position + soil_temp_10_cm + 
@@ -869,58 +1040,90 @@ gee_unstr <- geeglm(flux_value ~ landscape_position + soil_temp_10_cm +
 QIC(gee_exch)
 QIC(gee_unstr)
 ```
-#Trying non-parametric with gls model combo - gls with var structure + bootstrapping 
+
+#GAM (general additive model)
 ```{r}
-library(boot)
-boot_function <- function(data, indices) {
-  d <- data[indices,]
-  fit <- gls(flux_value ~ landscape_position + soil_temp_10_cm + 
-            thawdepth + VWC, data = d, method = "REML")
-  return(coef(fit))
-}
+library(mgcv)
 
-boot_results <- boot(data = df_MWlongNEE, statistic = boot_function, R = 1000)
-boot.ci(boot_results, type = "perc", index = 3)  # For thawdepth coefficient
+# Simple version without weighted var structure 
+MW.NEE.gam <- gam(flux_value ~ landscape_position + s(soil_temp_10_cm) + s(thawdepth) + s(VWC), 
+                  data = df_MWlongNEE, 
+                  method = "REML", 
+                  na.action = na.omit)
 
-
-
-library(boot)
-boot_function <- function(data, indices) {
-  d <- data[indices,]
-  fit <- gls(flux_value ~ landscape_position + soil_temp_10_cm + 
-            thawdepth + VWC, data = d, method = "REML")
-  return(coef(fit))
-}
-
-boot_results <- boot(data = df_MWlongNEE, statistic = boot_function, R = 1000)
-
-# Get CIs for each coefficient
-for(i in 1:length(coef(model_MW_full))) {
-  print(names(coef(model_MW_full))[i])
-  print(boot.ci(boot_results, type = "perc", index = i))
-}
+# Check results
+summary(MW.NEE.gam)
+#checking residuals 
+par(mfrow = c(2,2))
+gam.check(MW.NEE.gam) #k index p>0.05 so seems the model complextiy is sufficient 
 
 
-
-library(boot)
-boot_function <- function(data, indices) {
-  d <- data[indices,]
-  fit <- gls(flux_value ~ landscape_position + soil_temp_10_cm + 
-             thawdepth + VWC, 
-             weights = varIdent(form = ~1|landscape_position),
-             data = d, method = "REML")
-  return(coef(fit))
-}
-
-boot_results <- boot(data = df_MWlongNEE, statistic = boot_function, R = 1000)
-
-# Get 95% CI for coefficients
-for(i in 1:length(coef(model_MW_full))) {
-  cat(names(coef(model_MW_full))[i], ":\n")
-  print(boot.ci(boot_results, type = "perc", index = i))
-}
+#doesn't really improve the normality of residuals 
+# The k-index check is performing what's called a "basis dimension adequacy check." This is testing whether the k value you've chosen is large enough to capture the true relationship in your data.
+# The p-values from this test are interpreted as:# 
+# If p < 0.05: There's evidence that k is too small, meaning your smooth term might be missing important patterns
+# If p > 0.05: There's no evidence that k is too small, suggesting the current complexity is adequate
 
 ```
+
+#Quantile regression 
+```{r}
+library(quantreg)
+
+MW.NEE.qr <- rq(flux_value ~ landscape_position + soil_temp_10_cm + thawdepth + VWC, 
+                data = df_MWlongNEE, 
+                tau = 0.5, # median regression, more robust to outliers and non-normal distr
+                na.action = na.omit)
+
+summary(MW.NEE.qr)
+#Results: confidence intervals essentially at 0 so suggests there's no meaningful effect...? this one feels wonky, I don't understand it well enough to know what might be wrong or how to adjust it...
+```
+
+
+#Robust regression
+```{r}
+library(MASS)
+
+MW.NEE.rlm <- rlm(flux_value ~ landscape_position + soil_temp_10_cm + thawdepth + VWC, 
+                  data = df_MWlongNEE, 
+                  na.action = na.omit)
+
+summary(MW.NEE.rlm) 
+#Results: all coeffs = 0......wtf
+
+#expand the view so you can see the full value of the coeffs
+summary(MW.NEE.rlm)$coefficients
+# or
+options(digits=10)
+summary(MW.NEE.rlm)
+
+#Extract p-values based on t-stat and df
+# For your specific t-values with 17 degrees of freedom
+t_values <- c(-2.9119, 1.5749, 2.7041, 0.2993, 1.4269)
+variable_names <- c("Intercept", "landscape_positionupland", "soil_temp_10_cm", "thawdepth", "VWC")
+
+# Calculate two-sided p-values
+p_values <- 2 * pt(abs(t_values), df = 17, lower.tail = FALSE)
+
+# Create a data frame with the results
+result_table <- data.frame(
+  Variable = variable_names,
+  t_value = t_values,
+  p_value = p_values
+)
+
+# Print the result
+result_table
+#Result: soil temp is sig, p = -.015; others not sig * --> this matches the results of the final gls model EC.NEE.final 
+```
+
+
+
+
+
+
+
+
 
 
 
