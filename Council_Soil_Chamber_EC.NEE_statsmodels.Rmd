@@ -104,7 +104,6 @@ df_EClong <- df_EClong %>% arrange(flux_type)
 
 #Filter for NEE 
 ```{r}
-# Calculate variance within groups
 df_EClongNEE <- df_EClong %>%
   filter(flux_type == "NEE")
 
@@ -364,7 +363,7 @@ anova(lme.EC.NEE2, type = "marginal", test = TRUE) #none sig
 #Comparing the models 
 anova(gls.EC.NEE, lme.EC.NEE) #p = 0.3, no improvement to model with random effect - so plot_ID random effect *NOT needed here 
 anova(gls.EC.NEE2, lme.EC.NEE2) #same as above 
-anova(gls.EC.NEE, gls.EC.NEE2) #no sig diff but without thaw depth has bit of a low AIC/BIC 
+anova(gls.EC.NEE, gls.EC.NEE2) #no sig diff but without thaw depth has bit of a lower AIC/BIC 
 anova(lme.EC.NEE, lme.EC.NEE2) #no sig diff
 
 ```
