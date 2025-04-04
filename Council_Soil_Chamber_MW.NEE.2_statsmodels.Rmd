@@ -373,7 +373,7 @@ anova(model_homoscedastic, model_heteroscedastic) #p=0.001; hetero has lower AIC
 ```
 #Step 5: Try adding VWC (or any remaining non-correlated variables) back in to see if it improves the model (use reduction and addition / reduced models to test if various un-correlated predicors improve the model or not, and favor the simpler model)
 ```{r}
-# Assuming soil_temp was best and VWC is not strongly correlated with it
+#soil_temp was best 
 model_1var <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
                  weights = varIdent(form = ~1|landscape_position),
                  data = df_MWlongNEE, method = "ML")
@@ -804,6 +804,7 @@ boxplot(flux_value ~ VWC_bin, data = df_MWlongNEE) #no huge variation with VWC b
 # Visualize
 boxplot(flux_value ~ landscape_position, data = df_MWlongNEE) #very little variation in NEE fluxes for lowland
 ```
+
 #trying to transform mixed pos and neg values
 ```{r}
 # Shifted log transformation
