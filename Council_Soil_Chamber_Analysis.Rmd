@@ -55,8 +55,8 @@ df_NEE_RECO2 = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Counci
 #calculated GPP (NEE - Reco)
 df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_NEE_RECO2_GPP_2017to2019.csv')
 
-head(df_NEE_RECO2_GPP)
-str(df_NEE_RECO2_GPP)
+# head(df_NEE_RECO2_GPP)
+# str(df_NEE_RECO2_GPP)
 
 ```
 
@@ -97,13 +97,13 @@ df_NEE_RECO2_GPP<- df_NEE_RECO2_GPP %>%
 
 # Reshape the dataframe to long format
 df_long <- df_NEE_RECO2_GPP %>%
-  select(plot_ID, plot_type, landscape_position, measurement_date, time, FCH4, flux_CO2, flux_CH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm) %>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, time, FCH4, flux_CO2, flux_CH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm, thawdepth, VWC) %>%
   pivot_longer(cols = c(NEE, RECO, GPP), 
                names_to = "flux_type", 
                values_to = "flux_value")
 
-head(df_long)
-str(df_long)
+# head(df_long)
+# str(df_long)
 
 ```
 
@@ -412,6 +412,186 @@ anova(gls.plot.RECO) #p=0.5, not sig
 #Need to test variance structures for methane before continuing with soil chamber methane stats*** 
 
 #FCH4 stats 
+#checking data normality and homog of var 
+```{r}
+
+# Reshape the dataframe to long format
+df_FCH4 <- df_long%>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, time, thawdepth, VWC, FCH4, flux_CH4, inundated, soil_temp_10_cm)
+
+
+
+# Test normality within each landscape position
+df_FCH4 %>%
+  group_by(landscape_position) %>%
+  summarize(
+    shapiro_p = shapiro.test(FCH4)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: all no 
+
+
+# Test normality based on inundated
+df_FCH4 %>%
+  group_by(inundated) %>%
+  summarize(
+    shapiro_p = shapiro.test(FCH4)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: N = no; Y = no 
+
+
+# Q-Q plot of full dataset 
+qqnorm(df_FCH4$FCH4)
+qqline(df_FCH4$FCH4, col = "red")
+
+
+#histograms with density curves by landscape position
+ggplot(df_FCH4, aes(x = FCH4, fill = landscape_position)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~landscape_position) +
+  theme_minimal() +
+  labs(title = "Distribution of FCH4 by Landscape Position")
+
+
+# histograms with density curves by inundated
+ggplot(df_FCH4, aes(x = FCH4, fill = inundated)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~inundated) +
+  theme_minimal() +
+  labs(title = "Distribution of FCH4 by Inundation")
+
+
+
+#homogeneity of variance - levene's test
+# p > 0.05: Variances are homogeneous (no significant difference between variances).
+# p ≤ 0.05: Variances are not homogeneous.
+library(car)
+
+# Test homogeneity of variance for all main factors
+leveneTest(FCH4 ~ landscape_position, data = df_FCH4) #p=0.005, NOT homog of var
+leveneTest(FCH4 ~ inundated, data = df_FCH4)#p = 0,001, NOT homog of var
+
+
+#for interactions
+leveneTest(FCH4 ~ landscape_position * inundated, data = df_FCH4) #p<0.001, not ok*
+
+
+#test distribution normality of each numeric predictor variable 
+shapiro.test(df_FCH4$soil_temp_10_cm) #p=0.004, NOT normal** 
+shapiro.test(df_FCH4$thawdepth) #p = <0.001, NOT normal **
+shapiro.test(df_FCH4$VWC) #p<0.001, NOT normal **
+```
+#Checking colinearity / correlations to determine which variables to use for models 
+
+#Non-parametric tests of correlations - spearman's correlation 
+
+#Corr of continuous variables 
+```{r}
+#Correlation between soil temp, thaw depth, and VWC
+
+cor.test(df_FCH4$soil_temp_10_cm, df_FCH4$thawdepth, method="spearman")#p=0.01, *SIG*, correlated
+cor.test(df_FCH4$soil_temp_10_cm, df_FCH4$VWC, method="spearman") #p<0.01, *Sig*, correlated, one should be removed 
+cor.test(df_FCH4$thawdepth, df_FCH4$VWC, method="spearman") #p<0.001, *sig*, correlated, one should be removed 
+
+#Shows thawdepth and VWC are correlated, and VWC & soil temp are correlated 
+```
+
+#Checking correlation in categorical variables 
+```{r}
+# Check for separation in categorical variables
+table(df_FCH4$landscape_position, df_FCH4$inundated) 
+
+
+# Create contingency table to examine correlation quantitatively / confirm the separation test above 
+cont_table <- table(df_FCH4$landscape_position, df_FCH4$inundated)
+print(cont_table)
+
+# Test for association
+chisq.test(cont_table) #p<0.001--> correlated
+# Or for small sample sizes
+fisher.test(cont_table) #p=0.001, correlated 
+
+#landpos and inun are correlated, will remove inun 
+
+
+```
+
+
+#**Need to run through the steps for methane, but jumping to robust regression to see 
+
+#Robust Regression - less sensitive to violations of normality but cannot incorporate variance structure**
+```{r}
+library(MASS)
+library(car)
+#just testing reduced and full models - cross-validating 
+
+robust_model.final <- rlm(FCH4 ~ landscape_position + soil_temp_10_cm, 
+                    data = df_FCH4)
+summary(robust_model.final) 
+Anova(robust_model.final, type = "II") #landpos p<0.001, SIG, and soil temp p <0.001 0.02, 
+
+
+robust_model1 <- rlm(FCH4 ~ landscape_position + VWC, 
+                    data = df_FCH4)
+summary(robust_model1) 
+Anova(robust_model1, type = "II") #landpos and VWC p<0.001 *SIG*
+
+
+robust_model2 <- rlm(FCH4 ~ landscape_position + soil_temp_10_cm + VWC, 
+                    data = df_FCH4)
+summary(robust_model2) 
+Anova(robust_model2, type = "II") #all variables sig 
+
+
+robust_model3 <- rlm(FCH4 ~ landscape_position + VWC + soil_temp_10_cm + thawdepth,
+                    data = df_FCH4)
+summary(robust_model3) 
+Anova(robust_model3, type = "II") #soil temp, thawdepth, and vwc sig p<0.001, landpos not sig 
+
+
+```
+
+#Attempting to test robust regression models - coding help from Claude 
+```{r}
+# Define a function to calculate AIC for robust regression
+rlm_AIC <- function(model) {
+  n <- length(model$residuals)
+  RSS <- sum(model$residuals^2)
+  k <- length(coef(model)) + 1  # +1 for the error variance
+  AIC <- n * log(RSS/n) + 2*k
+  return(AIC)
+}
+
+# Compare models
+rlm_AIC(robust_model.final)
+rlm_AIC(robust_model1)
+rlm_AIC(robust_model2)
+rlm_AIC(robust_model3)
+
+#Results:
+# [1] -14153.53 --> best model with just soil temp
+# [1] -12810.24
+# [1] -12815.21
+# [1] -12855.44
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ```{r}
 #FCH4 stats overall 
 
@@ -422,7 +602,23 @@ gls.FCH4 = gls(FCH4 ~ plot_type + landscape_position + inundated + soil_temp_10_
 anova(gls.FCH4)
 #sig diff in soil temp, p=0.02, and in inundated (p<0.001) **
 
+# Extract standardized/normalized residuals
+std_resid <- residuals(gls.FCH4, type = "normalized")
 
+# Graphical assessment
+par(mfrow = c(1, 2))
+# Histogram of residuals
+hist(std_resid, main = "Histogram of Standardized Residuals", 
+     xlab = "Standardized Residuals", freq = FALSE)
+curve(dnorm, add = TRUE, col = "red")
+
+# QQ plot
+qqnorm(std_resid, main = "Normal Q-Q Plot")
+qqline(std_resid, col = "red")
+
+# Formal test
+shapiro_test <- shapiro.test(std_resid)
+print(shapiro_test) #for gls final model: p<0.001; normality NOT supported 
 
 #FCH4 stats within plot type 
 
@@ -587,18 +783,18 @@ emmeans(gls.plot.soil_temp_10_cm, adjust = "Tukey", pairwise ~ plot_type) #contr
 ```{r}
 # Create the boxplot: NEE and RECO flux vs landscape position 
 
-ggplot(df_long, aes(x = landscape_position, y = (flux_value *1/12 * 1000000), fill = flux_type)) +
+landscape_C_fluxes <- ggplot(df_long, aes(x = landscape_position, y = (flux_value *1/12 * 1000000), fill = flux_type)) +
   geom_boxplot() +
   labs(title = "Council Soil Chamber GPP, NEE, and Respiration by Landscape Position",
        x = "Landscape Position",
        #y = expression(Flux~Value~(gCO[2]-C~m^-2~s^-1)),
         #y = expression(Flux~Value~(*mu*molCO[2]-C/m^2/s)),
-        y = expression("Flux Value (" * mu * "mol " ~ m^-2 * s^-1 * ")"),
+        y = expression("Flux Value (" * mu * "mol " ~ m^-2 * ~ s^-1 * ")"),
        fill = "Flux Type") +
   geom_hline(yintercept = 0) +
     scale_y_continuous(limits = c(-6, 6))+ 
                      # breaks = seq(-7, 7, 1.5)+  # Specify the tick positions you want)+
-  theme_minimal() +
+  theme_bw() +
   theme(
    axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
     axis.text.x = element_text(size = 12, face = "bold"), # Adjust size for x-axis text
@@ -614,7 +810,7 @@ ggplot(df_long %>% filter(plot_type == "EC"),
   labs(title = "EC Plots: GPP, NEE, and Respiration vs Landscape Position",
        x = "Landscape Position",
         #y = expression(Flux~Value~(gCO[2]-C/m^2/s)),
-         y = expression("Flux Value (" * mu * "mol " ~ m^-2 * s^-1 * ")"),
+         y = expression("Flux Value (" * mu * "mol " ~ m^-2 * ~ s^-1 * ")"),
        fill = "Flux Type") +
    geom_hline(yintercept = 0)+
   scale_y_continuous(limits =c(-6, 6))+
@@ -637,7 +833,7 @@ ggplot(df_long %>% filter(plot_type == "MW"),
   labs(title = "MW Plots: GPP, NEE, and RECO vs Landscape Position",
        x = "Landscape Position",
         #y = expression(Flux~Value~(gCO[2]-C/m^2/s)),
-          y = expression("Flux Value (" * mu * "mol " ~ m^-2 * s^-1 * ")"),
+          y = expression("Flux Value (" * mu * "mol " ~ m^-2 * ~ s^-1 * ")"),
        fill = "Flux Type") +
    geom_hline(yintercept = 0)+
    scale_y_continuous(limits =c(-6, 6))+
@@ -658,7 +854,7 @@ ggplot(df_long %>% filter(plot_type == "BGC"),
   labs(title = "BGC Plots: GPP, NEE, and RECO vs Landscape Position",
        x = "Landscape Position",
        #y = expression(Flux~Value~(gCO[2]-C/m^2/s)),
-       y = expression("Flux Value (" * mu * "mol " ~ m^-2 * s^-1 * ")"),
+       y = expression("Flux Value (" * mu * "mol " ~ m^-2 * ~ s^-1 * ")"),
        fill = "Flux Type") +
    geom_hline(yintercept = 0)+
   #scale_y_continuous(limits = c(-0.0005, 0.0007))+
@@ -675,16 +871,14 @@ ggplot(df_long %>% filter(plot_type == "BGC"),
 ```
 #save image to maintain dimensions 
 ```{r}
-ggsave(
-  filename = "2017-2023_Seasonal_Trends2.png",  # File name and extension
-  plot = Monster_plot,        # The plot to save (default is the last plot created)
-  width = 60,                 # Width in inches
-  height = 17,                # Height in inches
-  dpi = 600,                 # Resolution in dots per inch
-  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
-)
-
-#ggsave("my_plot.pdf", width = 8, height = 6, dpi = 300, units = "in")
+# ggsave(
+#   filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_C_fluxes.png",  # File name and extension
+#   plot = landscape_C_fluxes,        # The plot to save (default is the last plot created)
+#   width = 15,                 # Width in inches
+#   height = 10,                # Height in inches
+#   dpi = 600,                 # Resolution in dots per inch
+#   units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+# )
 ```
 #methane exploratory 
 ```{r}
@@ -1152,7 +1346,8 @@ ggplot(df_long,
   labs( title = "Methane Fluxes within Plot Type vs Landscape Position ",
         x = "Landscape Position",
           #y = expression(Methane~Flux~(gCH[4]-C/m^2/s)),
-        y = expression(FCH[4]~"(" * mu * "mol" ~ CH[4]-C~m^-2~s^-1),
+       # y = expression(FCH[4]~"(" * mu * "mol" ~ CH[4]-C~/~m^-2~/~s)~")",
+        y = expression(FCH[4]~(CH[4]-C~μmol~m^{-2}~s^{-1})),
           fill = "Plot Type")+
   geom_hline(yintercept=0)+
   #geom_hline(yintercept = 0.007)+
@@ -1169,6 +1364,30 @@ ggplot(df_long,
    #facet_wrap(~plot_type, labeller = "label_both")
   facet_wrap(vars(plot_type), scales = "free_x")
 
+ggplot(df_long,
+       aes(x=landscape_position, y = (FCH4 *1/12 * 1000000), fill = plot_type))+
+  geom_boxplot()+
+  labs( title = "Methane Fluxes vs Landscape Position ",
+        x = "Landscape Position",
+          #y = expression(Methane~Flux~(gCH[4]-C/m^2/s)),
+        #y = expression(FCH[4]~"(" * mu * "mol" ~ CH[4]-C~m^-2~s^-1),
+         y = expression(FCH[4]~(CH[4]-C~μmol~m^{-2}~s^{-1})),
+          fill = "Plot Type")+
+  geom_hline(yintercept=0)+
+  #geom_hline(yintercept = 0.007)+
+  #theme_minimal() +
+  theme_bw()+
+ scale_y_continuous(limits = c(-0.15,0.15), #cut out a few bit outliers here to show trend better, 0.25 looks good but still mutes trends 
+  breaks = seq(-0.15, 0.15, 0.1))+
+                      #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+    theme(
+   axis.title.x = element_text(size = 14),  
+    axis.text.x = element_text(size = 12, face = "bold"), 
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))# +
+   #facet_wrap(~plot_type, labeller = "label_both")
+  facet_wrap(vars(plot_type), scales = "free_x")
+
 
 # all plot type - FCH4 vs landscape position & inundation 
 ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1/12 * 1000000), fill = inundated)) +
@@ -1176,7 +1395,8 @@ ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1/12 * 1000000), fill = i
   labs(title = "Methane Fluxes within Plot Type vs Landscape Position and Inundation",
        x = "Landscape Position",
          #y = expression(Methane~Flux~(gCH[4]-C/m^2/s)),
-        y = expression(FCH[4]~"(" * mu * "mol" ~ CH[4]-C~m^-2~s^-1),
+        #y = expression(FCH[4]~"(" * mu * "mol" ~ CH[4]-C~m^-2~s^-1),
+        y = expression(FCH[4]~(CH[4]-C~μmol~m^{-2}~s^{-1})),
        fill = "Inundated")+
    geom_hline(yintercept = 0)+
  scale_y_continuous(limits = c(-0.15,0.46), #cut out a few bit outliers here to show trend better, -0.25 and 0.5 looks good but trying others 
@@ -1189,6 +1409,30 @@ ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1/12 * 1000000), fill = i
    axis.title.y = element_text(size = 14),
    axis.text.y = element_text(size = 12, face = "bold"))+
   facet_wrap(vars(plot_type), scales = "free_x")
+
+# all plot type - FCH4 vs landscape position & inundation 
+ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1/12 * 1000000), fill = inundated)) +
+  geom_boxplot() +
+  labs(title = "Methane Fluxes vs Landscape Position and Inundation",
+       x = "Landscape Position",
+         #y = expression(Methane~Flux~(gCH[4]-C/m^2/s)),
+       #y = expression(FCH[4]~"(" * mu * "mol" ~ CH[4]-C~m^-2~s^-1),
+       y = expression(FCH[4]~(CH[4]-C~μmol~m^{-2}~s^{-1})),
+       fill = "Inundated")+
+   geom_hline(yintercept = 0)+
+ scale_y_continuous(limits = c(-0.15,0.46), #cut out a few bit outliers here to show trend better, -0.25 and 0.5 looks good but trying others 
+  breaks = seq(-0.15, 0.46, 0.15))+
+                     #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+  theme_bw()+ 
+  theme(
+   axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))#+
+  facet_wrap(vars(plot_type), scales = "free_x")
+  
+  # ggsave("C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/seasonal_budgets_CO2.png", seasonal_budgets_CO2, 
+  #      width = 10, height = 7, dpi = 600)
 ```
 
 
