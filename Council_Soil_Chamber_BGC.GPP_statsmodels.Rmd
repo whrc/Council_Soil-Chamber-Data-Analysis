@@ -1,0 +1,876 @@
+---
+title: 'Council_Soil_Chamber_BGC.GPP' #breaking NEE apart by plot type for stats, adapted from NEE_statsmodels.Rmd 
+output: html_document
+date: "2025-03-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load libraries 
+```{r, include=FALSE}
+rm(list= ls())
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(openair)
+library(plotrix)
+library(signal)
+library(svMisc)
+library(zoo)
+library(stringr)
+library(plyr)
+library(viridis)
+library(lubridate)
+library(tidyverse)
+library(gridExtra)
+library(plotly)
+library(RColorBrewer)
+library(pracma)
+library(dplyr)
+library(openair)
+library(nlme)
+library(lme4)
+
+Sys.setenv(TZ='UTC')
+
+```
+
+#Load filtered and merged df of soil chamber fluxes, moisture, temp (I upload multiples but only using df_NEE_RECO2 and df_NEE_RECO2_GPP for analysis below)
+```{r}
+# #filtered for p<0.05; units umol/m2/s or nmol/m2/s
+# df_soilchambers_filtered = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_filtered_soil_chamber_fluxes_2017to2019.csv')
+# 
+# #fluxes and moisture/temp df merged; FCO2 in units g/m2/s
+# df_fulljoin = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+# *****************Use these two, above are just extra if needed for looking at*********************
+
+#used transparent and opaque chambers to identify NEE and RECO, then merged back together 
+df_NEE_RECO2 = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+#calculated GPP (NEE - Reco)
+df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_NEE_RECO2_GPP_2017to2019.csv')
+
+
+```
+
+
+#Re-shape df into long format 
+```{r}
+library(tidyr)
+
+#Remove the NAs from inundation 
+library(dplyr)
+df_NEE_RECO2_GPP<- df_NEE_RECO2_GPP %>%
+   filter(!is.na(inundated))
+
+
+# Reshape the dataframe to long format, choose variables of interest 
+df_long <- df_NEE_RECO2_GPP %>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, time, date, VWC, air_temp, flux_CO2, flux_CH4, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, soil_temp_15_cm, thawdepth) %>%
+  pivot_longer(cols = c(NEE, RECO, GPP), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+
+```
+
+
+#Filter df by landscape position and flux type (GPP, NEE, RECO)
+
+####Create new df for each plot type for analysis 
+```{r}
+#Filter & make separate datasets for each plot_ID = "EC" "MW" and "BGC", and by flux type (GPP, NEE, RECO)
+
+#BGC - eddy covar tower plot types 
+df_BGClong <- df_long %>%
+  filter(plot_type == "BGC")
+
+
+#NEE
+df_NEE <-df_long %>%
+  filter(flux_type == "GPP")
+
+
+#Re-arrange by flux type (NEE, GPP, RECO) so you can analyze more easily 
+
+# Sort the dataframe by the flux_type column 
+df_BGClong <- df_BGClong %>% arrange(flux_type)
+
+```
+
+#Filter for NEE 
+```{r}
+#make sure to use complete cases of all variables of interest 
+df_BGClongGPP <- df_BGClong %>%
+  filter(flux_type == "GPP") %>%
+  filter(complete.cases(flux_value, thawdepth, soil_temp_10_cm,landscape_position, inundated, VWC))
+
+
+sum(is.na(df_BGClongGPP$VWC)) #check for 0's, in this one all the variables of interest have 0 NAs
+sum(is.na(df_BGClongGPP$thawdepth)) #check for 0's, in this one all the variables of interest have 0 NAs
+sum(is.na(df_BGClongGPP$soil_temp_10_cm)) #check for 0's, in this one all the variables of interest have 0 NAs
+
+```
+
+# Categorical Predictors: Variance and normality of categorical predictor variables 
+```{r}
+#Flux and landscape pos
+df_variance_landpos <- df_BGClongGPP %>%
+  group_by(landscape_position) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_landpos)
+
+# Variance plot - flux and landscape pos
+ggplot(df_variance_landpos, aes(x = landscape_position, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Landscape Position",
+       y = "Variance")
+#higher variance in upland 
+
+
+#Flux and inundated 
+df_variance_inundated <- df_BGClongGPP %>%
+  group_by(inundated) %>%
+  summarize(variance = var(flux_value, na.rm = TRUE))
+
+print(df_variance_inundated)
+
+# Variance plot - flux and inundated
+ggplot(df_variance_inundated, aes(x = inundated, y = variance)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Variance of Flux Value by Inundation",
+       y = "Variance")
+#higher variance in NOT* inundated plots 
+
+
+# Shapiro-Wilk test for normality across entire dataset
+shapiro_test <- shapiro.test(df_BGClongGPP$flux_value)
+print(shapiro_test) #p<0.001, NOT normal 
+
+
+# Test normality within each landscape position
+df_BGClongGPP %>%
+  group_by(landscape_position) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: lowland & upland = no; slope = yes
+
+
+# Test normality based on inundated
+df_BGClongGPP %>%
+  group_by(inundated) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: N = no; Y= yes 
+
+
+# Q-Q plot of full dataset 
+qqnorm(df_BGClongGPP$flux_value)
+qqline(df_BGClongGPP$flux_value, col = "red")
+
+
+#histograms with density curves by landscape position
+ggplot(df_BGClongGPP, aes(x = flux_value, fill = landscape_position)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~landscape_position) +
+  theme_minimal() +
+  labs(title = "Distribution of GPP by Landscape Position")
+
+
+# histograms with density curves by inundated
+ggplot(df_BGClongGPP, aes(x = flux_value, fill = inundated)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~inundated) +
+  theme_minimal() +
+  labs(title = "Distribution of GPP by Inundation")
+
+
+
+#homogeneity of variance - levene's test
+# p > 0.05: Variances are homogeneous (no significant difference between variances).
+# p ≤ 0.05: Variances are not homogeneous.
+library(car)
+
+# Test homogeneity of variance for all main factors
+leveneTest(flux_value ~ landscape_position, data = df_BGClongGPP) #p=0.82, homogeneity of var is ok
+leveneTest(flux_value ~ inundated, data = df_BGClongGPP)#p = 0.82, ok
+
+
+#for interactions
+leveneTest(flux_value ~ landscape_position * inundated, data = df_BGClongGPP) #p=0.79, ok
+
+
+```
+
+#Continuous predictors: Variance and normality of continuous predictor variables 
+
+###Testing to see which kind of correlation to use: Pearson for parametric, Spearman for non-parametric
+```{r}
+#test distribution normality of each numeric predictor variable 
+shapiro.test(df_BGClongGPP$soil_temp_10_cm) #p=0.0065, NOT normal** 
+shapiro.test(df_BGClongGPP$thawdepth) #p = <0.001, NOT normal **
+shapiro.test(df_BGClongGPP$VWC) #p<0.001, NOT normal **
+
+#visualize pairs to see if it looks linear
+pairs(df_BGClongGPP[c("soil_temp_10_cm", "thawdepth", "VWC")]) #NOPE 
+
+plot(df_BGClongGPP$soil_temp_10_cm, df_BGClongGPP$thawdepth)
+
+plot(df_BGClongGPP$soil_temp_10_cm, df_BGClongGPP$VWC)
+
+plot(df_BGClongGPP$thawdepth, df_BGClongGPP$VWC)
+
+ggplot(df_BGClongGPP, aes(x = soil_temp_10_cm, y = thawdepth))+
+  geom_point()+
+    labs(
+     x = "Soil Temperature (10 cm)", 
+     y = "Thaw Depth")+
+geom_abline(intercept = 0, slope = 7, color = "red") # 1:1 line in red, adj slope to account for diffs in scale
+
+
+#So this means for correlations and looking at collinearity, I need to use non-parametric tests 
+
+
+#Check homogeneity of variance: should see even spread of of points for homogeneity of variance 
+
+# Fit a simple model
+simple_model <- lm(flux_value ~ thawdepth, data = df_BGClongGPP)
+
+# Extract fitted values and residuals
+fitted_values <- fitted(simple_model)
+residuals <- residuals(simple_model)
+
+# Plot residuals vs. predictor
+plot(df_BGClongGPP$thawdepth, residuals, 
+     xlab = "Cont. Pred. Var", ylab = "Residuals",
+     main = "Residuals vs. Predictor Var")
+abline(h = 0, lty = 2)
+
+# Create a scale-location plot --> should be randomly scattered with a relatively flat trend line (red) for homogeneity of variance 
+plot(simple_model, which = 3)
+
+
+#Breusch-Pagan test - specifically tests if variance of residuals is constant - want a p > 0.05 for homogeneity of var
+library(lmtest)
+bptest(simple_model)
+
+#thawdepth = p=0.55, shows there is homogeneity of var 
+#soil temp = p = 0.64, suggests homogeneity of var 
+#VWC = p = 0.17,  suggests homogeneity of var 
+
+```
+```{r}
+ggplot(df_BGClongGPP, aes(x = soil_temp_10_cm, y = thawdepth)) +
+  geom_point() +
+  labs(
+    x = "Soil Temperature (10 cm)", 
+    y = "Thaw Depth (cm)", 
+    title = "Scatterplot of Soil Temperature vs. Thaw Depth") +
+  geom_smooth(method = "lm", color = "red") +
+  geom_abline(intercept = 0, slope = 7, color = "blue", linetype = "dashed")
+
+```
+
+
+#Checking colinearity / correlations to determine which variables to use for models 
+
+#Non-parametric tests of correlations - spearman's correlation 
+
+#Corr of continuous variables 
+```{r}
+#Correlation between soil temp, thaw depth, and VWC
+
+cor.test(df_BGClongGPP$soil_temp_10_cm, df_BGClongGPP$thawdepth, method="spearman")#p=0.62, not sig, not correlated
+cor.test(df_BGClongGPP$soil_temp_10_cm, df_BGClongGPP$VWC, method="spearman") #p<0.001, *Sig*, correlated, one should be removed 
+cor.test(df_BGClongGPP$thawdepth, df_BGClongGPP$VWC, method="spearman") #p<0.001, *sig*, correlated, one should be removed 
+
+#Shows thawdepth and VWC are correlated, and VWC & soil temp are correlated 
+```
+
+#Checking correlation in categorical variables 
+```{r}
+# Check for separation in categorical variables
+table(df_BGClongGPP$landscape_position, df_BGClongGPP$inundated) 
+
+
+# Create contingency table to examine correlation quantitatively / confirm the separation test above 
+cont_table <- table(df_BGClongGPP$landscape_position, df_BGClongGPP$inundated)
+print(cont_table)
+
+# Test for association
+chisq.test(cont_table) #p<0.84 --> shows no correlation 
+# Or for small sample sizes
+fisher.test(cont_table) #p<0.92, not correlated 
+
+#These are ok, don't show signs of correlation
+
+```
+
+#Determining model for BGC - NEE
+
+
+#Step 1: Determine which of the correlated variables to keep
+```{r}
+# Create competing models with one variable at a time - use "ML" to compare models, use "REML" for fitting final model 
+
+#thawdepth and VWC are correlated, and VWC & soil temp are correlated 
+model_temp <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
+                 data = df_BGClongGPP, method = "ML")
+
+model_thaw <- gls(flux_value ~ landscape_position + thawdepth, 
+                 data = df_BGClongGPP, method = "ML")
+
+model_VWC <- gls(flux_value ~ landscape_position + VWC, 
+                 data = df_BGClongGPP, method = "ML")
+
+# Compare with AIC/BIC
+AIC(model_temp, model_thaw, model_VWC) #model_VWC lowest AIC/BIC
+BIC(model_temp, model_thaw, model_VWC)#model_VWC lowest AIC/BIC
+
+
+#model_VWC has lowest AIC/BIC 
+
+```
+
+#Step 2: Now, test whether adding soil temp or thaw depth improves model 
+```{r}
+model_VWC <- gls(flux_value ~ landscape_position + VWC,
+                        data = df_BGClongGPP, method = "ML")
+
+model_VWCsoiltemp <- gls(flux_value ~ landscape_position + VWC + soil_temp_10_cm,
+                        data = df_BGClongGPP, method = "ML")
+
+model_VWCthawdepth <- gls(flux_value ~ landscape_position + VWC + thawdepth,
+                        data = df_BGClongGPP, method = "ML")
+
+anova(model_VWC, model_VWCsoiltemp, model_VWCthawdepth) #model_VWC has lowest AIC/BIC, but VWCsoiltemp close & has highest logLik, no p's are sig 
+anova(model_VWC, model_VWCsoiltemp) #model VWC has lower BIC, p = 0.17, not sig - adding temp doesn't improve model  
+anova(model_VWC, model_VWCthawdepth) #p=0.9, not sig, but model VWC has lower AIC/BIC, adding thaw doesn't improve model
+anova(model_VWCsoiltemp, model_VWCthawdepth) #VWCsoiltemp has lower AIC/BIC, higher lokLik, no p 
+anova(model_VWC, model_VWCsoiltemp)#p<0.17, essentially the same, no improvement 
+
+#Appears neither thaw depth or soil temp improve model 
+
+model_soiltemp<- gls(flux_value ~ landscape_position + soil_temp_10_cm,
+                        data = df_BGClongGPP, method = "ML")
+
+model_thaw<- gls(flux_value ~ landscape_position + thawdepth,
+                        data = df_BGClongGPP, method = "ML")
+
+anova(model_VWC, model_soiltemp) #VWC slightly better
+anova(model_VWC, model_thaw) #VWC slightly better 
+
+```
+
+#Step 3: Test if random effect of plot_ID is appropriate
+```{r}
+# #If not already: Make plot_ID, inundated, landscape_position as factor so they'll work with gls
+# df_MWlongGPP$plot_ID = factor(df_MWlongGPP$plot_ID)
+# df_MWlongGPP$landscape_position = factor(df_MWlongGPP$landscape_position)
+# df_MWlongGPP$inundated = factor(df_MWlongGPP$inundated)
+
+#Use best predictor variable from Step 1, which was soil temp 
+#use 'ML' for comparing models 
+
+library(nlme)
+#gls - no random effect
+model_fixed <- gls(flux_value ~ landscape_position + VWC, 
+                  data = df_BGClongGPP, method = "ML")
+
+#lme - with random effect of plot_ID
+model_random <- lme(flux_value ~ landscape_position + VWC, 
+                   random = ~1|plot_ID, 
+                   data = df_BGClongGPP, method = "ML")
+
+# Compare
+anova(model_fixed, model_random) #no sig diff and AIC/BIC marginally lower in model-fixed, p=0.99, so go for simpler model without random effect 
+```
+
+#Step 4: Test for variance structure 
+```{r}
+# test if adding a variance structure is appropriate 
+model_homoscedastic <- gls(flux_value ~ landscape_position + VWC, 
+                          data = df_BGClongGPP, method = "ML")
+
+model_heteroscedastic <- gls(flux_value ~ landscape_position + VWC, 
+                            weights = varIdent(form = ~1|landscape_position),
+                            data = df_BGClongGPP, method = "ML")
+
+# Compare
+anova(model_homoscedastic, model_heteroscedastic) #p=<0.001 SIG*; hetero has lower AIC/BIC and higher LogLik so we do use a variance structure here * 
+```
+
+#Step 5: Try adding any remaining non-correlated variables back in to see if it improves the model (use reduction and addition / reduced models to test if various un-correlated predictors improve the model or not, and favor the simpler model)
+```{r}
+# test variable soil temp (but this was correlated with VWC, just running to check if var structure changes this)
+model_1var <- gls(flux_value ~ landscape_position + VWC, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+model_2var <- gls(flux_value ~ landscape_position + VWC + soil_temp_10_cm, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+# Compare
+anova(model_1var, model_2var) #p=0.05, marginal, 2var has lower AIC & higher logLik, 1var has lower BIC -> adding soil temp does not sig improve model 
+
+#try variable thawdepth (but this was correlated with VWC)
+model_1var <- gls(flux_value ~ landscape_position + VWC, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+model_2var <- gls(flux_value ~ landscape_position + VWC + thawdepth, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+# Compare
+anova(model_1var, model_2var) #p=0.99, model 1 var has slightly lower AIC/BIC, suggests thawdepth doesn't improve model 
+
+#try variable "inundated"
+model_1var <- gls(flux_value ~ landscape_position + VWC, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+model_2var <- gls(flux_value ~ landscape_position + VWC + inundated, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+# Compare
+anova(model_1var, model_2var) #p=0.3, model 1 var has slightly lower AIC/BIC - suggests inundated doesn't improve model 
+
+
+#test interaction between land pos and VWC
+model_1var <- gls(flux_value ~ landscape_position + VWC, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+
+model_interact <- gls(flux_value ~ landscape_position * VWC, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+
+# Compare
+anova(model_1var, model_interact) #p=0.14, same AIC, model1var has slightly lower BIC,interact has higher logLik-->p value suggests interaction effect is not important to model 
+
+
+
+```
+#Step 6: Double check best correlated var was chosen, with and without extra var, now that variance structure was added 
+```{r}
+#test soil temp and thawdepth, and with and without VWC
+
+model_soiltemp <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+model_VWC <- gls(flux_value ~ landscape_position + VWC, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+model_thawdepth <- gls(flux_value ~ landscape_position + thawdepth, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+anova(model_VWC, model_soiltemp) #soiltemp better, no p 
+anova(model_VWC, model_thawdepth) #model VWC is better, no p
+anova(model_soiltemp, model_thawdepth) #model soil temp better, no p 
+#suggests soiltemp model may be best fit 
+
+plot(df_BGClongGPP$soil_temp_10_cm, df_BGClongGPP$flux_value) #all show a very similar trend 
+
+#Add in inundated 
+model_soiltempinun <- gls(flux_value ~ landscape_position + soil_temp_10_cm + inundated, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+model_VWCinun <- gls(flux_value ~ landscape_position + VWC + inundated, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+model_thawdepthinun <- gls(flux_value ~ landscape_position + thawdepth + inundated, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+anova(model_VWC, model_VWCinun) #p=0.3, adding inun does not improve model 
+anova(model_soiltemp, model_soiltempinun) #p=0.3, adding inun does not improve model 
+anova(model_thawdepth, model_thawdepthinun) #p=0.5, inun does not improve model 
+
+#suggests adding inundated does not significantly improve the model 
+
+
+model_soiltempVWC <- gls(flux_value ~ landscape_position + soil_temp_10_cm + VWC, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+model_thawdepthVWC <- gls(flux_value ~ landscape_position + thawdepth + VWC, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+model_soiltempthawdepth <- gls(flux_value ~ landscape_position + thawdepth + soil_temp_10_cm, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+
+
+anova(model_soiltempVWC, model_thawdepthVWC) #soiltempVWC better, no p *
+anova(model_soiltempVWC, model_soiltempthawdepth) #soiltempVWC better, no p *
+anova(model_thawdepthVWC, model_soiltempthawdepth) #soiltempthaw depth better, no p
+anova(model_thawdepthVWC, model_thawdepth) #adding VWC does not improve mode, p = 0.1
+anova(model_soiltempthawdepth, model_thawdepth) #p=0.1, adding soil temp to thaw depth sig improves model *
+anova(model_soiltempthawdepth, model_soiltemp)#p=0.8, adding thaw depth to soil temp does not improve model
+anova(model_soiltempVWC, model_soiltemp)#p=0.5, adding VWC to soil temp does not imrpove model  
+anova(model_thawdepthVWC, model_VWC)#p=0.8, adding thaw to VWC does not improve model 
+anova(model_soiltempVWC, model_VWC) #p=0.05, adding soil temp to VWC marginally better * 
+
+anova(model_soiltempVWC, model_soiltempthawdepth) #soiltempVWC marginally better, no p 
+anova(model_soiltemp, model_soiltempthawdepth, model_soiltempVWC, model_VWC)
+anova(model_soiltemp, model_soiltempVWC)#p=0.5, VWC does not improve 
+anova(model_soiltemp, model_soiltempthawdepth)#p=0.8, thaw does not improve 
+anova(model_soiltemp, model_VWC)#soiltemp is better but no p 
+
+model_interactVWC <- gls(flux_value ~ landscape_position * VWC, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+model_interactthawdepth <- gls(flux_value ~ landscape_position * thawdepth, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+model_interactsoiltemp <- gls(flux_value ~ landscape_position * soil_temp_10_cm, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "ML")
+
+
+anova(model_interactsoiltemp, model_interactthawdepth) #soiltemp interact slightly better, no p 
+anova(model_interactsoiltemp, model_interactVWC) #interactsoiltemp slightly better, no p
+anova(model_interactVWC, model_interactthawdepth) #same interactVWC slightly better, no p
+anova(model_VWC, model_interactVWC)#p=0.14, interaction does not improve 
+anova(model_soiltemp, model_interactsoiltemp)#p=0.3, interaction does not improve 
+anova(model_thawdepth, model_interactthawdepth) #p=0.5, interaction does not improve 
+#suggests interaction effect does not sig improve model 
+
+
+
+anova(model_soiltemp, model_VWC) #soil temp better, no p 
+anova(model_thawdepth, model_VWC) #VWC better, no p 
+anova(model_soiltemp, model_interactsoiltemp) #p=0.3
+
+#Seems like landpos and soil temp are best model...
+
+
+```
+#Final model, refit with REML
+```{r}
+BGC.GPP.final <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "REML")
+summary(BGC.GPP.final) #shows no var are sig 
+anova(BGC.GPP.final) #soil temp sig, p = 0.01
+Anova(BGC.GPP.final, type = "II") #soil temp p = 0.01, sig 
+# Using the standard anova function with F tests
+anova(BGC.GPP.final, type = "marginal", test = TRUE) #soil temp p = 0.01, sig 
+
+library(lsmeans)
+lsmeans(BGC.GPP.final, adjust = "Tukey", pairwise ~ landscape_position) #none sig 
+
+boxplot(flux_value ~ landscape_position, data = df_BGClongGPP)
+
+```
+#Some extra exploratory validation tests
+```{r}
+m1 <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "REML")
+summary(m1) 
+anova(m1) 
+Anova(m1, type = "II") 
+# Using the standard anova function with F tests
+anova(m1, type = "marginal", test = TRUE) #soil temp sig, p=0.01
+
+
+
+m2 <- gls(flux_value ~ landscape_position + VWC + soil_temp_10_cm, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "REML")
+summary(m2) 
+anova(m2) 
+Anova(m2, type = "II") 
+# Using the standard anova function with F tests
+anova(m2, type = "marginal", test = TRUE) #soil temp marginal p=0.05
+
+anova(m1,m2)#p<0.001, m1 better 
+
+
+m3 <- gls(flux_value ~ landscape_position + soil_temp_10_cm + inundated, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "REML")
+summary(m3)
+anova(m3) 
+Anova(m3, type = "II") 
+# Using the standard anova function with F tests
+anova(m3, type = "marginal", test = TRUE) #soil temp sig, p=0.01
+
+anova(m1, m3) #p<0.001, m1 better 
+
+
+m4 <- gls(flux_value ~ landscape_position + soil_temp_10_cm + thawdepth, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "REML")
+summary(m4)
+anova(m4) 
+Anova(m4, type = "II") 
+# Using the standard anova function with F tests
+anova(m4, type = "marginal", test = TRUE) #soil temp sig, p=0.02
+
+anova(m1,m4)#p<0.001, m1 better
+
+
+m5 <- gls(flux_value ~ landscape_position * soil_temp_10_cm, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "REML")
+summary(m5)
+anova(m5) 
+Anova(m5, type = "II") 
+# Using the standard anova function with F tests
+anova(m5, type = "marginal", test = TRUE) #soil temp sig, p=0.01
+
+anova(m1, m5)#p<0.001, m1 better 
+
+
+m6 <- gls(flux_value ~ landscape_position + VWC, 
+                 weights = varIdent(form = ~1|landscape_position),
+                 data = df_BGClongGPP, method = "REML")
+summary(m6)
+anova(m6) 
+Anova(m6, type = "II") 
+# Using the standard anova function with F tests
+anova(m6, type = "marginal", test = TRUE) #soil temp sig, p=0.01
+
+anova(m1, m6)#p<0.001, m1 better 
+
+#final model is m1
+```
+
+
+
+#Step 7: Test for multicollinearity in model 
+
+####For testing this in models, use VIF test 
+```{r}
+#variance inflation factor (vif) - vif = 1 = variables are not correlated; between 1 & 5 = moderately correlated,  5 or higher indicates highly correlated & multicollinearity among variables. GVIF is a generalized VIF for categorical variables with more than two levels; the adj VIF gives values for comparing across variables with diff degrees of freedom* --> look at both when assessing collinearity in a model 
+library(car)
+vif(BGC.GPP.final) # all <2, so should be ok! 
+```
+
+Plot model residuals and QQplot 
+```{r}
+#plot model residuals (homogeneity of variance)
+plot(BGC.GPP.final)
+
+#qqplot to verify normality - this plots the actual model, not the residuals 
+qqnorm(BGC.GPP.final)
+
+#checking how this QQ plot compares to plots created with normally distributed residuals
+
+op <- par(mar = c(2,2,1,1), mfrow = c(5,5))
+
+# create first qq plot using model residuals
+# color it red
+qqnorm(residuals(BGC.GPP.final), xlab = "", ylab = "", main = "", 
+       col = "red")
+qqline(residuals(BGC.GPP.final))
+
+# now create 24 qq plots using Normal data with sigma(dataset)
+for(i in 1:24){
+  # rnorm() samples from a Normal distribution  
+  d <- rnorm(length(residuals(BGC.GPP.final)), 
+             mean = 0, sd = sigma(BGC.GPP.final))
+  qqnorm(d, xlab = "", ylab = "", main = "")
+  qqline(d)
+}
+
+
+#comparing data QQplot to a normal QQplot and hist 
+qqnorm(residuals(BGC.GPP.final)) #normality of residuals 
+hist(residuals(BGC.GPP.final)) 
+car::qqPlot(x = residuals(BGC.GPP.final)) #shows where residuals breach normal distr
+qqPlot(residuals(BGC.GPP.final))
+
+```
+#Normality of Residuals 
+```{r}
+# Extract standardized/normalized residuals
+std_resid <- residuals(BGC.GPP.final, type = "normalized")
+
+# Graphical assessment
+par(mfrow = c(1, 2))
+# Histogram of residuals
+hist(std_resid, main = "Histogram of Standardized Residuals", 
+     xlab = "Standardized Residuals", freq = FALSE)
+curve(dnorm, add = TRUE, col = "red")
+
+# QQ plot
+qqnorm(std_resid, main = "Normal Q-Q Plot")
+qqline(std_resid, col = "red")
+
+# Formal test
+shapiro_test <- shapiro.test(std_resid)
+print(shapiro_test) #for gls final model: p<0.001; normality NOT supported 
+
+```
+#Test autocorrelation
+```{r}
+# Extract normalized residuals from GLS model
+residuals_gls <- residuals(BGC.GPP.final, type = "normalized")
+
+# Plot the autocorrelation function
+acf(residuals_gls, main = "Autocorrelation of Residuals") #want bars of Lag1 and higher to be below the blue-dotted lines of confidence -- ignore Lag0 ** Lag0 represents correlation of residuals with themselves and is always ~1, so this isn't useful and isn't a problem. Lag 1 shows corr between each residual and the prev residual, lag 2 = correlation between resisuals 2 steps apart, etc. **Focus on Lag1 and higher* 
+
+#Result: no apparent autocorrelation -- 
+#All bars below the confidence interval dotted line = ok
+
+# Compute lag-1 correlation in residuals - values close to 0 = little/no autocorrelation; value near 1 or -1 suggests sig correlation
+cor(residuals_gls[-1], residuals_gls[-length(residuals_gls)]) 
+#Result: -0.05, suggests no autocorrelation
+
+
+```
+#Homogeneity of variance 
+```{r}
+# Plot residuals vs fitted values
+par(mfrow = c(1, 1))
+plot(fitted(BGC.GPP.final), std_resid,
+     xlab = "Fitted Values", ylab = "Standardized Residuals",
+     main = "Residuals vs Fitted")
+abline(h = 0, lty = 2)
+
+# Check residuals by predictor variables
+par(mfrow = c(2, 2))
+boxplot(std_resid ~ df_BGClongGPP$landscape_position, 
+        main = "Residuals by Landscape Position")
+abline(h = 0, lty = 2)
+
+boxplot(std_resid ~ df_BGClongGPP$inundated, 
+        main = "Residuals by Inundation")
+abline(h = 0, lty = 2)
+
+plot(df_BGClongGPP$soil_temp_10_cm, std_resid,
+     xlab = "Soil Temperature (10 cm)", ylab = "Standardized Residuals")
+abline(h = 0, lty = 2)
+
+#Result: residuals vs fitted: spread is split, clumping on either end 
+
+
+# Residuals vs. Fitted plot
+plot(fitted(BGC.GPP.final), std_resid, 
+     xlab = "Fitted Values", ylab = "Residuals",
+     main = "Residuals vs Fitted Values")
+abline(h = 0, col = "red", lty = 2)
+
+# Levene’s Test for Homogeneity of Variance
+library(car)
+leveneTest(std_resid ~ df_BGClongGPP$landscape_position) #p=0.33; this says it's ok 
+
+```
+#Non-parametric approach 
+
+#### Important to note KW test is the non-parametric equivalent of a one-way anova, so it can only test one variable at a time, and can't test continuous/numeric variables. It also can't incorporate a variance structure. Spearman Correlation can be used for continuous variables*
+#testing each var independently isn't ideal because it can't capture what might happen when other variables are included...
+```{r}
+# Test landscape position effect on GPP
+kruskal.test(flux_value ~ landscape_position, data = df_BGClongGPP) #p=0.9, not sig 
+
+#wilcoxon test
+# For comparing two landscape positions (unpaired)
+wilcox.test(flux_value ~ landscape_position, 
+            data = df_BGClongGPP,
+            subset = landscape_position %in% c("upland", "lowland")) #p=0.8, not sig 
+
+wilcox.test(flux_value ~ landscape_position, 
+            data = df_BGClongGPP,
+            subset = landscape_position %in% c("upland", "slope"))#p=0.68, not sig 
+
+wilcox.test(flux_value ~ landscape_position, 
+            data = df_BGClongGPP,
+            subset = landscape_position %in% c("slope", "lowland"))#p=0.84, not sig 
+
+
+# For continuous variables, use Spearman correlation
+cor.test(df_BGClongGPP$flux_value, df_BGClongGPP$soil_temp_10_cm, method = "spearman") #p=0.005, *SIG
+cor.test(df_BGClongGPP$flux_value, df_BGClongGPP$VWC, method = "spearman") #p=0.01 SIG * 
+cor.test(df_BGClongGPP$flux_value, df_BGClongGPP$thawdepth, method = "spearman") #p=0.73, not sig 
+#The spearman results match the findings from the final gls model 
+
+```
+#Robust Regression - less sensitive to violations of normality but cannot incorporate variance structure**
+```{r}
+library(MASS)
+library(car)
+#just testing reduced and full models 
+robust_model1 <- rlm(flux_value ~ landscape_position + soil_temp_10_cm, 
+                    data = df_BGClongGPP)
+summary(robust_model1) 
+Anova(robust_model1, type = "II") #soil temp sig: p = 0.002
+
+
+robust_model2 <- rlm(flux_value ~ landscape_position + soil_temp_10_cm + VWC, 
+                    data = df_BGClongGPP)
+summary(robust_model2) 
+Anova(robust_model2, type = "II") #soil temp sig, p = 0.01
+
+
+robust_model3 <- rlm(flux_value ~ landscape_position + VWC + soil_temp_10_cm + thawdepth, 
+                    data = df_BGClongGPP)
+summary(robust_model3) 
+Anova(robust_model3, type = "II") ##soil temp sig, p = 0.02
+
+
+robust_model4 <- rlm(flux_value ~ landscape_position + VWC + soil_temp_10_cm + inundated + thawdepth, 
+                    data = df_BGClongGPP)
+summary(robust_model4) 
+Anova(robust_model4, type = "II") ##soil temp sig, p = 0.02
+
+
+```
+
+#Attempting to test robust regression models - coding help from Claude 
+```{r}
+# Define a function to calculate AIC for robust regression
+rlm_AIC <- function(model) {
+  n <- length(model$residuals)
+  RSS <- sum(model$residuals^2)
+  k <- length(coef(model)) + 1  # +1 for the error variance
+  AIC <- n * log(RSS/n) + 2*k
+  return(AIC)
+}
+
+# Compare models
+rlm_AIC(robust_model1)
+rlm_AIC(robust_model2)
+rlm_AIC(robust_model3)
+rlm_AIC(robust_model4)
+
+#Results:
+# [1] -2096.546
+# [1] -2096.975
+# [1] -2094.995
+# [1] -2092.595
+```
+
+
+
+
