@@ -95,13 +95,14 @@ df_RECO <-df_long %>%
 ```{r}
 #make sure to use complete cases of all variables of interest 
 df_RECO <- df_RECO %>%
-   filter(complete.cases(flux_value, thawdepth, soil_temp_10_cm,landscape_position, inundated, VWC))
+   filter(complete.cases(flux_value, thawdepth, soil_temp_10_cm,landscape_position, inundated, VWC, air_temp))
 
 
 sum(is.na(df_RECO$VWC)) 
 sum(is.na(df_RECO$thawdepth)) 
 sum(is.na(df_RECO$soil_temp_10_cm)) 
 sum(is.na(df_RECO$inundated)) 
+sum(is.na(df_RECO$air_temp)) 
 
 ```
 
@@ -786,6 +787,72 @@ rlm_AIC(robust_model3)
 # [1] -3555.61
 # [1] -3552.823
 ```
+#Correlation matrix 
 
+####Flux v Environmental correlation matrix - soil chambers RECO
+```{r}
+# Environmental relationships
+# Create a correlation plot between fluxes and environmental variables
+
+#variables of interest / used in model (except air temp), for reference 
+#(complete.cases(flux_value, thawdepth, soil_temp_10_cm,landscape_position, inundated, VWC))
+
+#can only use numeric variables, so "landscape_position and inundated can't be used 
+chamber_RECO_corr_matrix <- df_RECO %>%
+  select(flux_value, thawdepth, soil_temp_10_cm, VWC, air_temp) %>%
+  rename(
+    RECO = flux_value,
+    Soil_temp_10cm = soil_temp_10_cm,
+    Soil_VWC = VWC,
+    Air_temp = air_temp,
+    Thaw_depth = thawdepth,
+  )
+
+cor_matrix2 <- cor(chamber_RECO_corr_matrix, use = "complete.obs")
+
+# Convert correlation matrix to long format for plotting
+cor_long2 <- as.data.frame(as.table(cor_matrix2))
+names(cor_long2) <- c("Var1", "Var2", "Correlation")
+
+ggplot(cor_long2, aes(x = Var1, y = Var2, fill = Correlation)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "red", mid = "white", high = "blue", midpoint = 0,
+                        limits = c(-1, 1)) +  # Add this to set the full range to be 1 to -1
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(axis.text = element_text(size = 12, face = "bold"),
+       plot.title = element_text(size = 14, face = "bold", hjust = 0.5)) +                 
+  labs(title = "Correlation Matrix of Soil Chamber RECO Fluxes and Environmental Variables")
+   
+
+
+
+# option 2: Fewer breaks for a cleaner look, only labels corr values above 0.3 --> I like this one best 
+ggplot(cor_long2, aes(x = Var1, y = Var2, fill = Correlation)) +
+  geom_tile() +
+  # Add correlation values only for strong correlations
+  geom_text(data = subset(cor_long2, abs(Correlation) > 0.2),  # Only show stronger correlations
+            aes(label = sprintf("%.2f", Correlation),
+                 color = abs(Correlation) < 0.5), # Changes text color based on correlation strength
+            size = 3,
+            fontface = "bold") + #to make numbers in tiles bold
+  scale_fill_gradient2(low = "red", 
+                      mid = "white", 
+                      high = "blue", 
+                      midpoint = 0,
+                      limits = c(-1, 1),
+                      breaks = c(-1, -0.5, 0, 0.5, 1)) +
+    scale_color_manual(values = c("white", "black"), guide = "none") +  # For text visibility
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 12, face = "bold"),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5)) +                 
+  labs(title = "Correlation Matrix of Soil Chamber RECO Fluxes and Environmental Variables")
+
+ #saves the figure directly above
+ggsave("C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/soil_chamber_RECO_corr_matrix.png",
+       width = 8, height = 5, dpi = 600)
+
+```
 
 
