@@ -362,9 +362,9 @@ anova(model_VWC, model_VWCsoiltemp)#p<0.2, no sig diff
 
 ```
 
-#Step 3: Test if random effect of plot_ID is appropriate
+#Step 3: Test if random effect of plot_ID or plot_type is appropriate
 ```{r}
-#Use best predictor variable from Step 1, which was soil temp 
+#Use best predictor variable from Step 1, which was VWC
 #use 'ML' for comparing models 
 
 library(nlme)
