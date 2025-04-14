@@ -1,0 +1,1036 @@
+---
+title: "Council_Soil_Chamber_Landscape.CH4"  #FCH4 in gC/m2/s, flux_CH4 is in nano mol/m2/s
+output: html_document
+date: "2024-12-03"
+
+---
+#Note that for comparison purposes, both instruments 
+were used to measure chamber fluxes on July 18, 2018 --> remove potential measurement duplicates from this date?
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load libraries 
+```{r, include=FALSE}
+rm(list= ls())
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(openair)
+library(plotrix)
+library(signal)
+library(svMisc)
+library(zoo)
+library(stringr)
+library(plyr)
+library(viridis)
+library(lubridate)
+library(tidyverse)
+library(gridExtra)
+library(plotly)
+library(RColorBrewer)
+library(pracma)
+library(dplyr)
+library(openair)
+library(nlme)
+library(lme4)
+
+Sys.setenv(TZ='UTC')
+```
+
+
+#Load filtered and merged df of soil chamber fluxes, moisture, temp (I upload multiples but only using df_NEE_RECO2 and df_NEE_RECO2_GPP for analysis below)
+```{r}
+
+#used transparent and opaque chambers to identify NEE and RECO, then merged back together 
+df_NEE_RECO2 = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+#calculated GPP (NEE - Reco)
+df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_NEE_RECO2_GPP_2017to2019.csv')
+
+# head(df_NEE_RECO2_GPP)
+# str(df_NEE_RECO2_GPP)
+
+```
+
+#Kyle recommended having units be umol, so convert from gC/m2/s to umolC/m2/s
+```{r}
+# #umol to g
+# # Net CO2 Flux - convert from umol/m2/s to gC/m2/s
+#  flux_CO2 * (1/1000000) * 12))
+# 
+# 
+# #Net CH4 flux --> convert from nmol/m2/s to gC/m2/s
+#  flux_CH4 * (1/1000000000)*12))
+
+#flux-CO2 and flux-CH4 are in this df and are already in umol so below is not necessary but leaving for reference
+#FCH4 and FCO2 are in g/m2/s 
+
+#g to umol 
+# Net CO2 Flux - convert from umol/m2/s to gC/m2/s
+# df_NEE_RECO2_GPP <- df_NEE_RECO2_GPP%>%
+#   mutate(FCO2 = ifelse(is.na(flux_CO2), 0, flux_CO2 * 1/12 * 1000000)) 
+# 
+# 
+# #Net CH4 flux --> convert from nmol/m2/s to gC/m2/s
+# df_NEE_RECO2_GPP < - df_NEE_RECO2_GPP %>%
+#   mutate(FCH4 = ifelse(is.na(flux_CH4), 0, flux_CH4 * 1/12 * 1000000000)*12))
+```
+
+
+#Re-shape df 
+```{r}
+library(tidyr)
+
+#Remove the NAs from inundation 
+library(dplyr)
+df_NEE_RECO2_GPP<- df_NEE_RECO2_GPP %>%
+   filter(!is.na(inundated))
+
+
+# Reshape the dataframe to long format - leaving out soil temp 15cm because of a lot of missing values
+df_long <- df_NEE_RECO2_GPP %>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, time, FCH4, flux_CO2, flux_CH4, inundated, air_temp, soil_temp_10_cm, thawdepth, VWC) %>%
+  pivot_longer(cols = c(flux_CO2, flux_CH4), 
+               names_to = "flux_type", 
+               values_to = "flux_value")
+
+
+
+```
+
+
+#Filter df by landscape position and flux type (GPP, NEE, RECO)
+
+####Create new df for each plot type for analysis 
+```{r}
+# library(dplyr)
+
+#Filter the dataframe for plot_ID = "EC" "MW" and "BGC", and by flux type to create df for diff analysis options
+
+#EC - eddy covar tower plot types 
+df_EC <- df_long%>%
+  filter(plot_type == "EC")
+#use complete cases 
+df_EC <- df_EC %>%
+   filter(complete.cases(flux_value, thawdepth, soil_temp_10_cm,landscape_position, inundated, VWC, air_temp))
+
+#MW - moisture warming plot types 
+df_MW <- df_long %>%
+  filter(plot_type == "MW")
+
+#use complete cases 
+df_MW<- df_MW %>%
+   filter(complete.cases(flux_value, thawdepth, soil_temp_10_cm,landscape_position, inundated, VWC, air_temp))
+
+#BGC - biogeochem plot types - most representative of all the landscape positions 
+df_BGC <- df_long %>%
+  filter(plot_type == "BGC")
+
+#use complete cases 
+df_BGC <- df_BGC %>%
+   filter(complete.cases(flux_value, thawdepth, soil_temp_10_cm,landscape_position, inundated, VWC, air_temp)) #went from 204 to 204 obs 
+
+
+#methane across all plot types 
+df_FCH4 <-df_long %>%
+  filter(flux_type == "flux_CH4")
+
+sum(is.na(df_FCH4$flux_CH4)) #0
+sum(is.na(df_FCH4$thawdepth)) #8
+sum(is.na(df_FCH4$soil_temp_10_cm)) #10
+sum(is.na(df_FCH4$VWC)) #28
+sum(is.na(df_FCH4$air_temp)) #0 
+
+df_FCH4 <- df_FCH4 %>%
+   filter(complete.cases(flux_value, thawdepth, soil_temp_10_cm,landscape_position,inundated, VWC, air_temp)) #went from 185 to 158 obs 
+
+
+```
+
+
+#checking data normality and homog of var 
+```{r}
+# Test normality within each landscape position
+df_FCH4 %>%
+  group_by(landscape_position) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: all no 
+
+
+# Test normality based on inundated
+df_FCH4 %>%
+  group_by(inundated) %>%
+  summarize(
+    shapiro_p = shapiro.test(flux_value)$p.value,
+    normal = ifelse(shapiro_p > 0.05, "Yes", "No")
+      )
+#Results: all no  
+
+
+# Q-Q plot of full dataset 
+qqnorm(df_FCH4$flux_value)
+qqline(df_FCH4$flux_value, col = "red")
+
+
+#histograms with density curves by landscape position
+ggplot(df_FCH4, aes(x = flux_value, fill = landscape_position)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~landscape_position) +
+  theme_minimal() +
+  labs(title = "Distribution of FCH4 by Landscape Position")
+
+
+# histograms with density curves by inundated
+ggplot(df_FCH4, aes(x = flux_value, fill = inundated)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", bins = 30) +
+  geom_density(alpha = 0.2) +
+  facet_wrap(~inundated) +
+  theme_minimal() +
+  labs(title = "Distribution of FCH4 by Inundation")
+
+
+
+#homogeneity of variance - levene's test
+# p > 0.05: Variances are homogeneous (no significant difference between variances).
+# p ≤ 0.05: Variances are not homogeneous.
+library(car)
+
+# Test homogeneity of variance for all main factors
+leveneTest(flux_value ~ landscape_position, data = df_FCH4) #p=0.18, ok 
+leveneTest(flux_value ~ inundated, data = df_FCH4)#p <0.001, NOT* homog of var
+
+
+#for interactions
+leveneTest(flux_value~ landscape_position * inundated, data = df_FCH4) #p<0.001, not homog*
+
+
+#test distribution normality of each numeric predictor variable 
+shapiro.test(df_FCH4$soil_temp_10_cm) #p=0.004, NOT normal** 
+shapiro.test(df_FCH4$thawdepth) #p = <0.001, NOT normal **
+shapiro.test(df_FCH4$VWC) #p<0.001, NOT normal **
+shapiro.test(df_FCH4$air_temp) #p<0.001, NOT normal **
+```
+#Checking colinearity / correlations to determine which variables to use for models 
+
+#Non-parametric tests of correlations - spearman's correlation 
+
+#Corr of continuous variables 
+```{r}
+#checking for Correlation between soil temp, thaw depth, air temp, and VWC
+
+#soil temp v thaw depth
+cor.test(df_FCH4$soil_temp_10_cm, df_FCH4$thawdepth, method="spearman")#p=0.02, *SIG*, correlated **
+#soil temp v VWC
+cor.test(df_FCH4$soil_temp_10_cm, df_FCH4$VWC, method="spearman") #p=0.02, *Sig*, correlated **
+#soil temp v air temp 
+cor.test(df_FCH4$soil_temp_10_cm, df_FCH4$air_temp, method="spearman") #p<0.001, correlated **
+#thaw depth v VWC
+cor.test(df_FCH4$thawdepth, df_FCH4$VWC, method="spearman") #p<0.001, *sig*, correlated **
+#thaw depth v air temp 
+cor.test(df_FCH4$thawdepth, df_FCH4$air_temp, method="spearman") #p=0.59, not corr 
+#air temp v VWC
+cor.test(df_FCH4$air_temp, df_FCH4$VWC, method="spearman") #p=0.15, not corr 
+
+#Shows soil temp is correlated with thaw depth, VWC, and air temp, & thawdepth and VWC are correlated
+```
+
+#Checking correlation in categorical variables 
+```{r}
+# Check for separation in categorical variables
+table(df_FCH4$landscape_position, df_FCH4$inundated) 
+  #          N  Y
+  # lowland 33 14
+  # slope   22  2
+  # upland  81  6
+
+# Create contingency table to examine correlation quantitatively / confirm the separation test above 
+cont_table <- table(df_FCH4$landscape_position, df_FCH4$inundated)
+print(cont_table)
+
+# Test for association
+chisq.test(cont_table) #p<0.001--> correlated
+# Or for small sample sizes
+fisher.test(cont_table) #p=0.001, correlated 
+
+#landpos and inun are correlated, will remove inun --> but will tests models below just to be sure 
+
+
+```
+#Testing models for CH4 using complete cases 
+
+#Step 1: Determine which of the correlated variables to keep
+```{r}
+# Create competing models with one variable at a time - use "ML" to compare models, use "REML" for fitting final model 
+
+#Shows soil temp is correlated with thaw depth, VWC, and air temp, & thawdepth and VWC are correlated
+
+model_temp <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
+                 data = df_FCH4, method = "ML")
+
+model_thaw <- gls(flux_value ~ landscape_position + thawdepth, 
+                 data = df_FCH4, method = "ML")
+
+model_VWC <- gls(flux_value ~ landscape_position + VWC, 
+                 data = df_FCH4, method = "ML")
+
+model_airtemp <- gls(flux_value ~ landscape_position + air_temp, 
+                 data = df_FCH4, method = "ML")
+
+# Compare with AIC/BIC - lowest values denote better fit 
+AIC(model_temp, model_thaw, model_VWC, model_airtemp) #thaw, then VWC have lowest AIC
+BIC(model_temp, model_thaw, model_VWC, model_airtemp) #model_thaw, then VWC, have lowest BIC 
+
+#air temp has highest AIC/BIC so removing airtemp since it's correlated with soil temp 
+#model thaw seems best...followed by VWC, and they're correlated, so maybe remove VWC 
+
+
+
+```
+
+#Step 2: Now, test whether VWC and soil temp improve model or not 
+```{r}
+# using thawdepth as it seemed to be best predictor var
+model_thaw <- gls(flux_value ~ landscape_position + thawdepth, 
+                        data = df_FCH4, method = "ML")
+
+model_VWC <- gls(flux_value ~ landscape_position + VWC, 
+                        data = df_FCH4, method = "ML")
+#compare
+anova(model_thaw, model_VWC) #model thaw better, lower AIC/BIC and higher logLik, suggests using thaw instead of VWC
+
+#add VWC
+model_with_VWC <- gls(flux_value ~ landscape_position + thawdepth + VWC, 
+                     data = df_FCH4, method = "ML")
+
+# Compare
+anova(model_thaw, model_with_VWC) #significant improvement of model with VWC...p<0.001
+
+
+#add soil temp 
+model_with_soiltemp <- gls(flux_value ~ landscape_position + thawdepth + soil_temp_10_cm, 
+                     data = df_FCH4, method = "ML")
+
+# Compare
+anova(model_thaw, model_with_soiltemp) #p=0.001...= sig improvement, but marginally lower AIC/BIC including soil temp 
+
+#add both soil temp and VWC 
+model_with_all <- gls(flux_value ~ landscape_position + thawdepth + soil_temp_10_cm + VWC, 
+                     data = df_FCH4, method = "ML")
+#compare
+anova(model_with_all, model_thaw)#model with all lower AIC/BIC, p<0.001 so sig improvement...
+
+#add inundated to with_all model 
+model_with_allinun <- gls(flux_value ~ landscape_position + thawdepth + soil_temp_10_cm + VWC + inundated, 
+                     data = df_FCH4, method = "ML")
+#compare
+anova(model_with_all, model_with_allinun)#model including inun lower AIC/BIC, p<0.001 so sig improvement...
+
+#compare all 
+anova(model_thaw, model_with_soiltemp, model_with_VWC, model_with_all, model_with_allinun)
+
+#despite correlations, it seems having all the variables, including inun, significantly improves the model...should check VIF for multicollinearity
+
+#variance inflation factor (vif) - vif = 1 = variables are not correlated; between 1 & 5 = moderately correlated,  5 or higher indicates highly correlated & multicollinearity among variables. GVIF is a generalized VIF for categorical variables with more than two levels; the adj VIF gives values for comparing across variables with diff degrees of freedom* --> look at both when assessing collinearity in a model 
+library(car)
+vif(model_with_allinun) # all <2, so looks like it could be ok to keep all ?? *ask kyle 
+```
+#Step 3: Test if random effect of plot_ID or plot_type is appropriate
+```{r}
+#Use best predictor variable from Step 1, which was thawdepth
+#use 'ML' for comparing models 
+
+library(nlme)
+#gls - no random effect
+model_fixed <- gls(flux_value ~ landscape_position + thawdepth, 
+                  data = df_FCH4, method = "ML")
+
+#lme - with random effect of plot_ID
+model_random <- lme(flux_value ~ landscape_position + thawdepth, 
+                   random = ~1|plot_ID, 
+                   data = df_FCH4, method = "ML")
+
+# Compare
+anova(model_fixed, model_random) #very marginally lower AIC/BIC in random, but p = 0.016, so sig improvement with random effect of plot ID
+
+#lme - with random effect of plot type 
+model_random2 <- lme(flux_value ~ landscape_position + thawdepth, 
+                   random = ~1|plot_type, 
+                   data = df_FCH4, method = "ML")
+
+# Compare
+anova(model_fixed, model_random2) #p=0.99, random effect of plot type does not improve model 
+anova(model_random2, model_random)#plot_ID as random effect better, lower AIC/BIC  
+
+
+#try will all variables 
+model_fixed_all <- gls(flux_value ~ landscape_position + thawdepth + VWC + soil_temp_10_cm + inundated, 
+                  data = df_FCH4, method = "ML")
+
+#lme - with random effect of plot_ID
+model_random_all <- lme(flux_value ~ landscape_position + thawdepth + VWC + soil_temp_10_cm + inundated, 
+                   random = ~1|plot_ID, 
+                   data = df_FCH4, method = "ML")
+
+#lme - with random effect of plot_type
+model_random_all2 <- lme(flux_value ~ landscape_position + thawdepth + VWC + soil_temp_10_cm + inundated, 
+                   random = ~1|plot_type, 
+                   data = df_FCH4, method = "ML")
+
+anova(model_fixed_all, model_random_all)#no sig improvement when adding plot ID, p = 0.4
+anova(model_fixed_all, model_random_all2)#p=0.99, no sig improvement when adding plot type 
+anova(model_random_all, model_random_all2) #no p, essentially the same 
+
+anova(model_random, model_random_all) #model_random_all sig better, p<0.001, marginally lower AIC/BIC
+anova(model_random, model_fixed_all) #p<0.001, model_fixed_all sig better 
+
+
+anova(model_random, model_random2, model_random_all, model_random_all2, model_fixed, model_fixed_all)
+#model_fixed_all has lowest AIC/BIC
+
+vif(model_fixed_all) # all <2, so looks like it could be ok to keep all ? *Ask Kyle 
+
+```
+
+#Step 4: Test for variance structure 
+```{r}
+#using best model from code chunk before: 
+
+# test if adding a variance structure is appropriate 
+
+#var structure by landpos 
+model_homoscedastic <- gls(flux_value ~ landscape_position + thawdepth + VWC + soil_temp_10_cm + inundated,  
+                          data = df_FCH4, method = "ML")
+
+model_heteroscedastic <- gls(flux_value ~ landscape_position + thawdepth + VWC + soil_temp_10_cm + inundated,  
+                            weights = varIdent(form = ~1|landscape_position),
+                            data = df_FCH4, method = "ML")
+
+# Compare
+anova(model_homoscedastic, model_heteroscedastic) #p=<0.001 SIG*; var structure of landpos improves model 
+
+
+#variance structure by plot type 
+model_heteroscedastic2 <- gls(flux_value ~ landscape_position + thawdepth + VWC + soil_temp_10_cm + inundated,   
+                            weights = varIdent(form = ~1|plot_type),
+                            data = df_FCH4, method = "ML")
+
+# Compare
+anova(model_homoscedastic, model_heteroscedastic2) #p<0.001, model improves with plot type var structure 
+anova(model_heteroscedastic, model_heteroscedastic2)#no p, appears using plot_type var structure may be better fit, lower AIC/BIC, higher logLik
+
+
+#combined variance structure of landpos and plot type 
+model_heteroscedastic3 <- gls(flux_value ~ landscape_position + thawdepth + VWC + soil_temp_10_cm + inundated,  
+                            weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
+                            data = df_FCH4, method = "ML")
+anova(model_heteroscedastic3, type = "marginal", test = TRUE)#landpos p=0.02, SIG*
+                            
+                            #varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | landscape_position)))
+
+anova(model_homoscedastic, model_heteroscedastic3) # hetero3 p<0.001, hetero3 better model 
+anova(model_heteroscedastic, model_heteroscedastic3) #p<0.001, hetero3 better 
+anova(model_heteroscedastic2, model_heteroscedastic3)#p<0.001, hetero3 better model 
+
+#suggests using both landpos and plot_type as var structures 
+
+
+#Maybe try adding and reducing here?? check VIF again *** TO DO 
+
+vif(model_heteroscedastic3) # all <2, so looks like it could be ok to keep all ? *Ask Kyle 
+```
+#Step 5: Double check best correlated var was chosen, with and without extra var, now that variance structure was added 
+
+```{r}
+#starting with thawdepth as that appeared to be strongest predictor variable per previous tests - re-testing for best correlated predictor variable now that var structure is added 
+model_1varthawdepth <- gls(flux_value ~ landscape_position + thawdepth, 
+                  weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
+                 data = df_FCH4, method = "ML")
+
+
+model_1varsoiltemp <- gls(flux_value ~ landscape_position + soil_temp_10_cm, 
+                  weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
+                 data = df_FCH4, method = "ML")
+
+
+model_1varVWC <- gls(flux_value ~ landscape_position + VWC, 
+                  weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
+                 data = df_FCH4, method = "ML")
+
+# Compare
+anova(model_1varthawdepth, model_1varsoiltemp) #no p, thawdepth had marginally lower AIC/BIC
+anova(model_1varthawdepth, model_1varVWC) #no p, VWC had marginally lower AIC/BIC
+anova(model_1varsoiltemp, model_1varVWC) #no p, VWC had marginally lower AIC/BIC
+```
+
+
+#Step 6: Try adding any remaining non-correlated variables back in to see if it improves the model (use reduction and addition / reduced models to test if various un-correlated predictors improve the model or not, and favor the simpler model)
+
+#*Note: in this the variables are correlated but according to VIF not heavily, and adding them back in improved the model significantly 
+
+#multiple var structure 
+```{r}
+#so now starting with model_1varVWC as base for comparison as that seems to maybe be best (marginally) predictor variable 
+
+#add soil temp 
+model_2var <- gls(flux_value ~ landscape_position + VWC + soil_temp_10_cm, 
+               weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
+                 data = df_FCH4, method = "ML")
+
+# Compare
+anova(model_1varVWC, model_2var) #p=0.53, model_1varVWC had marginally lower AIC/BIC, adding soil temp did not improve model  
+
+
+#add thawdepth 
+model_2var <- gls(flux_value ~ landscape_position + VWC + thawdepth, 
+                weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
+                 data = df_FCH4, method = "ML")
+
+# Compare
+anova(model_1varVWC, model_2var) #p=0.33, model_1varVWC had marginally lower AIC/BIC, adding thaw does not significantly improve model 
+
+
+model_3var <- gls(flux_value ~ landscape_position + VWC + thawdepth + soil_temp_10_cm, 
+                weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
+                 data = df_FCH4, method = "ML")
+
+anova(model_1varVWC, model_3var) #p=0.57, marginally lower AIC/BIC for model_1varVWC, adding extra variables does not improve the model 
+
+#all variables 
+model_4var <- gls(flux_value ~ landscape_position + VWC + thawdepth + soil_temp_10_cm + inundated, 
+                weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
+                 data = df_FCH4, method = "ML")
+
+anova(model_1varVWC, model_4var) #p=0.001, SIG* - significantly improves the model - may be linked to inundation though....
+
+
+#all variables 
+model_VWCinun <- gls(flux_value ~ landscape_position + VWC + inundated, 
+                weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
+                 data = df_FCH4, method = "ML")
+
+anova(model_VWCinun, model_4var) #p=0.64, no sig difference between these two, model_VWCinun slightly lower AIC/BIC 
+
+anova(model_1varVWC, model_VWCinun, model_4var) #p=0.001, model_VWCinun sig better than model_1varVWC, but no sig improvement with model_4var, suggests inundation is important, but likely correlated ....how to handle this? 
+
+vif(model_VWCinun) #all below 2, suggesting no significant multicollinearity 
+
+
+#test interaction between land post and VWC
+model_interact <- gls(flux_value ~ landscape_position * VWC, 
+               weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
+                 data = df_FCH4, method = "ML")
+
+#interaction between VWC and inundated 
+model_interact2 <- gls(flux_value ~ landscape_position + VWC * inundated, 
+                 weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
+                 data = df_FCH4, method = "ML")
+
+#interaction between landpos, VWC and inundated 
+model_interact3 <- gls(flux_value ~ landscape_position * VWC * inundated, 
+                 weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
+                 data = df_FCH4, method = "ML")
+
+
+# Compare
+anova(model_1varVWC, model_interact)#p=0.008, *SIG*, interaction significantly improves model 
+anova(model_1varVWC, model_interact2)#p<0.001, interact 2 significantly improves model 
+anova(model_1varVWC, model_interact3)#p<0.001, interact3 significantly improves model 
+
+anova(model_interact, model_interact2)#no p, model_interact2 marginally lower AIC/BIC, higher LogLik
+anova(model_interact, model_interact3)#p<0.001 model_interact3 significantly improves model 
+anova(model_interact3, model_interact2)#<0.001, model_interact3 significantly improves model 
+
+
+
+anova(model_VWCinun, model_interact) #p=0.3,model_VWCinun has slightly lower AIC/BIC, suggests interaction effect is not important to model 
+anova(model_VWCinun, model_interact2) #p=0.02, *SIG*, model_interact2 has very slightly lower AIC, but basically the same BIC, suggests interaction effect of VWC and inun may be important but that perhaps the complexity of the interaction is negating the explanatory power....*Ask Kyle*  
+anova(model_VWCinun, model_interact3)#p<0.001, interact3 significantly improves model 
+```
+
+#Step 7: Test for multicollinearity in model 
+
+####VIF - Checking multicollinearity among the different types of models with VIF 
+```{r}
+#Since I'm using continuous and categorical variables here, the adj VIF is more appropriate to follow as it specifically developed to address the limitation of standard VIF when dealing with factors or categorical variables. *Allows for comparison between continuous and categorical variables. For interpretation guidelines with adjusted VIF:
+# Values below 2: Low multicollinearity
+# Values between 2-4: Moderate multicollinearity  -- above 4 = high multicollinearity 
+
+vif(model_VWCinun) #all below 2 so should be ok 
+#                        GVIF Df GVIF^(1/(2*Df))
+# landscape_position 1.514199  2        1.109292
+# VWC                1.061871  1        1.030471
+# inundated          1.478085  1        1.215765
+
+vif(model_interact)
+#                            GVIF Df GVIF^(1/(2*Df))
+# landscape_position     18.153841  2        2.064154
+# VWC                     9.805461  1        3.131367
+# landscape_position:VWC 32.913386  2        2.395207
+
+
+vif(model_interact2) #shows inundated and VWC are likely moderately correlated, but below the 5 threshold, and adj VIF are all at ~2 or less, so this might be acceptable....*Ask Kyle? 
+
+#                        GVIF Df GVIF^(1/(2*Df))
+# landscape_position 1.523141  2        1.110926
+# VWC                1.155879  1        1.075118
+# inundated          4.956730  1        2.226372
+# VWC:inundated      4.626829  1        2.151006
+
+
+vif(model_interact3) #HIGH correlations here, therefore we should not use this model * 
+#                                       GVIF Df GVIF^(1/(2*Df))
+# landscape_position                64.28515  2        2.831572
+# VWC                               36.30070  1        6.025007
+# inundated                         12.73873  1        3.569135
+# landscape_position:VWC           142.67782  2        3.456122
+# landscape_position:inundated     390.43981  2        4.445172
+# VWC:inundated                     18.03519  1        4.246786
+# landscape_position:VWC:inundated 404.86772  2        4.485680
+
+```
+
+
+#Step 8: Autocorrelation, model residuals (normality and homogeneity of variance)
+
+
+#Test autocorrelation
+from web: Autocorrelation analysis measures the relationship of the observations between the different points in time. Testing for autocorrelation is important for time series analysis and regression models to ensure the validity of statistical inferences and the reliability of model predictions. Autocorrelation refers to the correlation between values of the same variable at different time points, and its presence can lead to biased results
+```{r}
+# Extract normalized residuals from GLS model
+residuals_gls <- residuals(model_interact3, type = "normalized")
+
+# Plot the autocorrelation function
+acf(residuals_gls, main = "Autocorrelation of Residuals") #want bars of Lag1 and higher to be below the blue-dotted lines of confidence -- ignore Lag0 ** Lag0 represents correlation of residuals with themselves and is always ~1, so this isn't useful and isn't a problem. Lag 1 shows corr between each residual and the prev residual, lag 2 = correlation between residuals 2 steps apart, etc. **Focus on Lag1 and higher* 
+
+#Result: no apparent autocorrelation -- 
+#All bars below the confidence interval dotted line = ok
+
+# Compute lag-1 correlation in residuals - values close to 0 = little/no autocorrelation; value near 1 or -1 suggests sig correlation
+cor(residuals_gls[-1], residuals_gls[-length(residuals_gls)]) 
+#Result: -0.001, suggests no autocorrelation
+
+
+#model_VWCinun: lag1 bar exceeds dotted blue lines, but corr = 0.19 = close to 0 so little to no autocorrelation
+#model_interact: 0.159, ok 
+#model_interact2: 0.17, ok 
+#model_interact3: 0.095, ok 
+
+
+```
+
+
+#Model Residuals and QQ-plot
+Going to do this for various models as unsure which one is actually best *
+```{r}
+#plot model residuals (homogeneity of variance)
+plot(model_interact3)
+
+#qqplot to verify normality - this plots the actual model, not the residuals 
+qqnorm(model_interact3)
+
+#checking how this QQ plot compares to plots created with normally distributed residuals
+
+op <- par(mar = c(2,2,1,1), mfrow = c(5,5))
+
+# create first qq plot using model residuals
+# color it red
+qqnorm(residuals(model_interact3), xlab = "", ylab = "", main = "", 
+       col = "red")
+qqline(residuals(model_interact3))
+
+# now create 24 qq plots using Normal data with sigma(dataset)
+for(i in 1:24){
+  # rnorm() samples from a Normal distribution  
+  d <- rnorm(length(residuals(model_interact3)), 
+             mean = 0, sd = sigma(model_interact3))
+  qqnorm(d, xlab = "", ylab = "", main = "")
+  qqline(d)
+}
+
+
+#comparing data QQplot to a normal QQplot and hist 
+qqnorm(residuals(model_interact3)) #normality of residuals 
+hist(residuals(model_interact3)) 
+car::qqPlot(x = residuals(model_interact3)) #shows where residuals breach normal distr
+qqPlot(residuals(model_interact3))
+
+
+#Results
+#model_VWCinun: not good at all 
+#model_interact: not good at all 
+#model_interact2: not good 
+#model_interact3: not good 
+
+
+
+```
+
+
+#Normality of Residuals 
+```{r}
+# Extract standardized/normalized residuals
+std_resid <- residuals(model_interact3, type = "normalized")
+
+# Graphical assessment
+par(mfrow = c(1, 2))
+# Histogram of residuals
+hist(std_resid, main = "Histogram of Standardized Residuals", 
+     xlab = "Standardized Residuals", freq = FALSE)
+curve(dnorm, add = TRUE, col = "red")
+
+# QQ plot
+qqnorm(std_resid, main = "Normal Q-Q Plot")
+qqline(std_resid, col = "red")
+
+# Formal test
+shapiro_test <- shapiro.test(std_resid)
+print(shapiro_test) 
+
+#Results
+#model_VWCinun: p<0.001, NOT supported 
+#model_interact: p<0.001, NOT supported 
+#model_interact2: p<0.001, NOT supported 
+#model_interact3: p<0.001, NOT supported 
+
+```
+
+
+
+
+#Homogeneity of variance 
+```{r}
+# Plot residuals vs fitted values
+par(mfrow = c(1, 1))
+plot(fitted(model_interact3), std_resid,
+     xlab = "Fitted Values", ylab = "Standardized Residuals",
+     main = "Residuals vs Fitted")
+abline(h = 0, lty = 2)
+
+# Check residuals by predictor variables
+par(mfrow = c(2, 2))
+boxplot(std_resid ~ df_FCH4$landscape_position, 
+        main = "Residuals by Landscape Position")
+abline(h = 0, lty = 2)
+
+boxplot(std_resid ~ df_FCH4$inundated, 
+        main = "Residuals by Inundation")
+abline(h = 0, lty = 2)
+
+plot(df_FCH4$soil_temp_10_cm, std_resid,
+     xlab = "Soil Temperature (10 cm)", ylab = "Standardized Residuals")
+abline(h = 0, lty = 2)
+
+# Residuals vs. Fitted plot
+plot(fitted(model_interact3), std_resid, 
+     xlab = "Fitted Values", ylab = "Residuals",
+     main = "Residuals vs Fitted Values")
+abline(h = 0, col = "red", lty = 2)
+
+# Levene’s Test for Homogeneity of Variance, need p greater than 0.05 
+library(car)
+leveneTest(std_resid ~ df_FCH4$landscape_position) 
+
+
+#Results
+#model_VWCinun: p=0.41, ok 
+#model_interact: p=0.54, ok 
+#model_interact2: p=0.51, ok 
+#model_interact3: p=0.16, ok 
+
+```
+
+#Non-parametric approach 
+
+#### Important to note KW test is the non-parametric equivalent of a one-way anova, so it can only test one variable at a time, and can't test continuous/numeric variables. It also can't incorporate a variance structure. Spearman Correlation can be used for continuous variables*
+#testing each var independently isn't ideal because it can't capture what might happen when other variables are included...therefore it's better to find a test that can account for multiple variables, like the robust regression in code chunk following this one 
+```{r}
+# Test landscape position effect on GPP
+kruskal.test(flux_value ~ landscape_position, data = df_FCH4) #p=0.00031, *SIG* 
+
+#wilcoxon test
+# For comparing two landscape positions (unpaired)
+wilcox.test(flux_value ~ landscape_position, 
+            data = df_FCH4,
+            subset = landscape_position %in% c("upland", "lowland")) #p<0.001, *SIG*
+
+wilcox.test(flux_value ~ landscape_position, 
+            data = df_FCH4,
+            subset = landscape_position %in% c("upland", "slope"))#p=0.97, not sig 
+
+wilcox.test(flux_value ~ landscape_position, 
+            data = df_FCH4,
+            subset = landscape_position %in% c("slope", "lowland"))#p=0.027, *SIG*
+
+#just testing inundated since prev models indicate it may be really important 
+wilcox.test(flux_value ~ inundated, 
+            data = df_FCH4,
+            subset = inundated %in% c("Y", "N")) #p<0.001, *SIG*
+
+
+# For continuous variables, use Spearman correlation
+cor.test(df_FCH4$flux_value, df_FCH4$soil_temp_10_cm, method = "spearman") #p=0.08, not sig 
+cor.test(df_FCH4$flux_value, df_FCH4$VWC, method = "spearman") #p<0.001, *SIG*
+cor.test(df_FCH4$flux_value, df_FCH4$thawdepth, method = "spearman") #p<0.001, *SIG*
+
+
+```
+
+#Robust Regression - less sensitive to violations of normality but cannot incorporate variance structure**
+```{r}
+library(MASS)
+library(car)
+#just testing reduced and full models - cross-validating 
+
+robust_modelVWCinun <- rlm(FCH4 ~ landscape_position + VWC + inundated, 
+                    data = df_FCH4)
+summary(robust_modelVWCinun) 
+Anova(robust_modelVWCinun, type = "II") #landpos p = 0.29; VWC and inundated p<0.001, SIG* 
+
+
+
+robust_model1 <- rlm(FCH4 ~ landscape_position + VWC, 
+                    data = df_FCH4)
+summary(robust_model1) 
+Anova(robust_model1, type = "II") #landpos p=0.07, VWC <0.001 *SIG*
+
+
+robust_model2 <- rlm(FCH4 ~ landscape_position + soil_temp_10_cm, 
+                    data = df_FCH4)
+summary(robust_model2) 
+Anova(robust_model2, type = "II") #landpos p<0.001, SIG, and soil temp p=0.03, *SIG*, 
+
+
+robust_model3 <- rlm(FCH4 ~ landscape_position + thawdepth, 
+                    data = df_FCH4)
+summary(robust_model3) 
+Anova(robust_model3, type = "II") #lanpos p = 0.08; thawdepth <0.001 SIG*
+
+
+
+robust_model4 <- rlm(FCH4 ~ landscape_position + VWC + thawdepth, 
+                    data = df_FCH4)
+summary(robust_model4) 
+Anova(robust_model4, type = "II") #landpos p = 0.8; VWC and thawdepth p<0.001 *SIG
+
+
+
+robust_model5 <- rlm(FCH4 ~ landscape_position + VWC + soil_temp_10_cm + thawdepth,
+                    data = df_FCH4)
+summary(robust_model5) 
+Anova(robust_model5, type = "II") #landpos p = 0.7; soil temp p = 0.05, VWC and thawdepth p<0.001 *SIG
+
+
+robust_model6 <- rlm(FCH4 ~ landscape_position + VWC + soil_temp_10_cm + thawdepth + inundated,
+                    data = df_FCH4)
+summary(robust_model6) 
+Anova(robust_model6, type = "II") #landpos p = 0.8; soil temp p = 0.13; VWC, thawdepth, and inundated p <0.001 *SIG 
+
+
+robust_interact <- rlm(FCH4 ~ landscape_position * VWC,
+                    data = df_FCH4)
+summary(robust_interact) 
+Anova(robust_interact, type = "II") #all p<0.001, SIG*
+
+
+robust_interact2 <- rlm(FCH4 ~ landscape_position + VWC * inundated,
+                    data = df_FCH4)
+summary(robust_interact2) 
+Anova(robust_interact2, type = "II") #all p <0.001, SIG
+
+
+robust_interact3 <- rlm(FCH4 ~ landscape_position * VWC * inundated,
+                    data = df_FCH4)
+summary(robust_interact3) 
+Anova(robust_interact3, type = "II") #all p <0.001, SIG*
+
+
+
+
+
+```
+
+#Attempting to test robust regression models - coding help from Claude 
+```{r}
+# Define a function to calculate AIC for robust regression
+rlm_AIC <- function(model) {
+  n <- length(model$residuals)
+  RSS <- sum(model$residuals^2)
+  k <- length(coef(model)) + 1  # +1 for the error variance
+  AIC <- n * log(RSS/n) + 2*k
+  return(AIC)
+}
+
+# Compare models
+rlm_AIC(robust_modelVWCinun)
+rlm_AIC(robust_model1)
+rlm_AIC(robust_model2)
+rlm_AIC(robust_model3)
+rlm_AIC(robust_model4)
+rlm_AIC(robust_model5)
+rlm_AIC(robust_model5)
+rlm_AIC(robust_interact)
+rlm_AIC(robust_interact2)
+rlm_AIC(robust_interact3)
+
+#Results:
+# [1] -4290.057
+# [1] -4263.414 -> lanpos + VWC 
+# [1] -4255.966 ** --> robust model 3, landpos + thawdepth 
+# [1] -4268.177
+# [1] -4274.599
+# [1] -4275.814
+# [1] -4275.814
+# [1] -4287.718
+# [1] -4289.911
+# [1] -4407.775
+
+
+```
+
+
+
+
+#Temp relationships 
+```{r}
+
+#FCH4 and soil temp 
+ggplot(df_NEE_RECO2_GPP, aes(x=soil_temp_10_cm, y = FCH4*1000)) + geom_point()
+
+FCH4.temp <- lm(FCH4 ~ soil_temp_10_cm, data = df_NEE_RECO2_GPP)
+summary(FCH4.temp) #R2 = 0.05, p = 0.002
+#extract R2 and p value for slope 
+r2 <- summary(FCH4.temp)$r.squared
+p_value <- summary(FCH4.temp)$coefficients[2, 4]
+#plot 
+ggplot(df_NEE_RECO2_GPP, aes(x = soil_temp_10_cm, y = FCH4)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +  # Add regression line
+  annotate("text", x = 0, 
+           y = 0, 
+           label = paste("R² = ", round(r2, 2), "\n", 
+                         "p = ", signif(p_value, 3)), 
+           hjust = 0, size = 5) +
+  labs(x = "Soil Temperature (10 cm)", y = "FCH4",
+       title = "Relationship between FCH4 and Soil Temperature") +
+  theme_minimal()
+
+
+```
+
+#AGU figs
+```{r}
+#looking at FCH4 (in g/m2/s) by landscape position and plot type, facet wrapped --> revert to umolCO2 and nmolCH4*
+ggplot(df_long,
+       aes(x=landscape_position, y = (FCH4 *1/12 * 1000000), fill = plot_type))+
+  geom_boxplot()+
+  labs( title = "Methane Fluxes within Plot Type vs Landscape Position ",
+        x = "Landscape Position",
+          #y = expression(Methane~Flux~(gCH[4]-C/m^2/s)),
+       # y = expression(FCH[4]~"(" * mu * "mol" ~ CH[4]-C~/~m^-2~/~s)~")",
+        y = expression(FCH[4]~(CH[4]-C~μmol~m^{-2}~s^{-1})),
+          fill = "Plot Type")+
+  geom_hline(yintercept=0)+
+  #geom_hline(yintercept = 0.007)+
+  #theme_minimal() +
+  theme_bw()+
+ scale_y_continuous(limits = c(-0.15,0.15), #cut out a few bit outliers here to show trend better, 0.25 looks good but still mutes trends 
+  breaks = seq(-0.15, 0.15, 0.1))+
+                      #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+    theme(
+   axis.title.x = element_text(size = 14),  
+    axis.text.x = element_text(size = 12, face = "bold"), 
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold")) +
+   #facet_wrap(~plot_type, labeller = "label_both")
+  facet_wrap(vars(plot_type), scales = "free_x")
+
+ggplot(df_long,
+       aes(x=landscape_position, y = (FCH4 *1/12 * 1000000), fill = plot_type))+
+  geom_boxplot()+
+  labs( title = "Methane Fluxes vs Landscape Position ",
+        x = "Landscape Position",
+          #y = expression(Methane~Flux~(gCH[4]-C/m^2/s)),
+        #y = expression(FCH[4]~"(" * mu * "mol" ~ CH[4]-C~m^-2~s^-1),
+         y = expression(FCH[4]~(CH[4]-C~μmol~m^{-2}~s^{-1})),
+          fill = "Plot Type")+
+  geom_hline(yintercept=0)+
+  #geom_hline(yintercept = 0.007)+
+  #theme_minimal() +
+  theme_bw()+
+ scale_y_continuous(limits = c(-0.15,0.15), #cut out a few bit outliers here to show trend better, 0.25 looks good but still mutes trends 
+  breaks = seq(-0.15, 0.15, 0.1))+
+                      #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+    theme(
+   axis.title.x = element_text(size = 14),  
+    axis.text.x = element_text(size = 12, face = "bold"), 
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))# +
+   #facet_wrap(~plot_type, labeller = "label_both")
+  facet_wrap(vars(plot_type), scales = "free_x")
+
+
+# all plot type - FCH4 vs landscape position & inundation 
+ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1/12 * 1000000), fill = inundated)) +
+  geom_boxplot() +
+  labs(title = "Methane Fluxes within Plot Type vs Landscape Position and Inundation",
+       x = "Landscape Position",
+         #y = expression(Methane~Flux~(gCH[4]-C/m^2/s)),
+        #y = expression(FCH[4]~"(" * mu * "mol" ~ CH[4]-C~m^-2~s^-1),
+        y = expression(FCH[4]~(CH[4]-C~μmol~m^{-2}~s^{-1})),
+       fill = "Inundated")+
+   geom_hline(yintercept = 0)+
+ scale_y_continuous(limits = c(-0.15,0.46), #cut out a few bit outliers here to show trend better, -0.25 and 0.5 looks good but trying others 
+  breaks = seq(-0.15, 0.46, 0.15))+
+                     #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+  theme_bw()+ 
+  theme(
+   axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))+
+  facet_wrap(vars(plot_type), scales = "free_x")
+
+# all plot type - FCH4 vs landscape position & inundation 
+landscape_CH4_fluxes <- ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1/12 * 1000000), fill = inundated)) +
+  geom_boxplot() +
+  labs(title = "Methane Fluxes vs Landscape Position and Inundation",
+       x = "Landscape Position",
+         #y = expression(Methane~Flux~(gCH[4]-C/m^2/s)),
+       #y = expression(FCH[4]~"(" * mu * "mol" ~ CH[4]-C~m^-2~s^-1),
+       y = expression(FCH[4]~(CH[4]-C~μmol~m^{-2}~s^{-1})),
+       fill = "Inundated")+
+   geom_hline(yintercept = 0)+
+ scale_y_continuous(limits = c(-0.15,0.46), #cut out a few bit outliers here to show trend better, -0.25 and 0.5 looks good but trying others 
+  breaks = seq(-0.15, 0.46, 0.15))+
+                     #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+  theme_bw()+ 
+  theme(
+   axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))#+
+  facet_wrap(vars(plot_type), scales = "free_x")
+  
+  # ggsave("C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/seasonal_budgets_CO2.png", seasonal_budgets_CO2, 
+  #      width = 10, height = 7, dpi = 600)
+```
+
+#save image to maintain dimensions 
+```{r}
+ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_CH4_fluxes.png",  # File name and extension
+  plot = landscape_CH4_fluxes,        # The plot to save (default is the last plot created)
+  width = 15,                 # Width in inches
+  height = 10,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+```
+
