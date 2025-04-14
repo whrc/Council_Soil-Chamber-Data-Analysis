@@ -1411,7 +1411,7 @@ ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1/12 * 1000000), fill = i
   facet_wrap(vars(plot_type), scales = "free_x")
 
 # all plot type - FCH4 vs landscape position & inundation 
-ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1/12 * 1000000), fill = inundated)) +
+landscape_CH4_fluxes <- ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1/12 * 1000000), fill = inundated)) +
   geom_boxplot() +
   labs(title = "Methane Fluxes vs Landscape Position and Inundation",
        x = "Landscape Position",
@@ -1435,4 +1435,15 @@ ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1/12 * 1000000), fill = i
   #      width = 10, height = 7, dpi = 600)
 ```
 
+#save image to maintain dimensions 
+```{r}
+ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_CH4_fluxes.png",  # File name and extension
+  plot = landscape_CH4_fluxes,        # The plot to save (default is the last plot created)
+  width = 15,                 # Width in inches
+  height = 10,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+```
 
