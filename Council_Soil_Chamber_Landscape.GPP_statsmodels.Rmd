@@ -1,5 +1,5 @@
 ---
-title: 'Council_Soil_Chamber_Landscape.GPP' #breaking GPP apart by plot type for stats, adapted from GPP_statsmodels.Rmd 
+title: 'Council_Soil_Chamber_Landscape.GPP' 
 output: html_document
 date: "2025-03-10"
 ---
@@ -79,9 +79,9 @@ df_long <- df_NEE_RECO2_GPP %>%
 ```
 
 
-#Filter df by landscape position and flux type (GPP, GPP, RECO)
+#Filter df by landscape position and flux type (NEE, GPP, RECO)
 
-####Create new df for each plot type for analysis 
+####CFilter for GPP and make dataset for just GPP fluxes 
 ```{r}
 #Filter & make separate datasets for each plot_ID = "EC" "MW" and "BGC", and by flux type (GPP, GPP, RECO)
 
@@ -91,7 +91,7 @@ df_GPP <-df_long %>%
 
 ```
 
-#Filter for GPP
+#make sure dataset has complete cases for variables of interest 
 ```{r}
 #make sure to use complete cases of all variables of interest 
 df_GPP <- df_GPP %>%
@@ -194,7 +194,7 @@ ggplot(df_GPP, aes(x = flux_value, fill = inundated)) +
 # p ≤ 0.05: Variances are not homogeneous.
 library(car)
 
-# Test homogeneity of variance for all main factors
+# Test homogeneity of variance for categorical factors (see code chunk below for testing continuous/numerical factors)
 leveneTest(flux_value ~ landscape_position, data = df_GPP) #p=0.83, homogeneity of var is ok
 leveneTest(flux_value ~ inundated, data = df_GPP)#p = 0.54, ok
 
@@ -208,7 +208,7 @@ leveneTest(flux_value ~ landscape_position * inundated, data = df_GPP) #p=0.7, o
 
 ###Testing to see which kind of correlation to use: Pearson for parametric, Spearman for non-parametric
 ```{r}
-#test distribution normality of each numeric predictor variable 
+#test distribution normality of each numeric predictor variable (continuous factors)
 shapiro.test(df_GPP$soil_temp_10_cm) #p=0.004, NOT normal** 
 shapiro.test(df_GPP$thawdepth) #p = <0.001, NOT normal **
 shapiro.test(df_GPP$VWC) #p<0.001, NOT normal **
@@ -277,7 +277,7 @@ ggplot(df_GPP, aes(x = soil_temp_10_cm, y = thawdepth)) +
 
 #Checking colinearity / correlations to determine which variables to use for models 
 
-#Non-parametric tests of correlations - spearman's correlation 
+#Non-parametric tests of correlations - spearman's correlation - because predictor variables are not* normally distributed
 
 #Corr of continuous variables 
 ```{r}
@@ -329,7 +329,7 @@ model_VWC <- gls(flux_value ~ landscape_position + VWC,
 model_soiltempthawdepth1 <- gls(flux_value ~ landscape_position + thawdepth + soil_temp_10_cm, 
                  data = df_GPP, method = "ML")
 
-# Compare with AIC/BIC
+# Compare with AIC/BIC - lowest AIC and lowest BIC = better model 
 AIC(model_temp, model_thaw, model_VWC, model_soiltempthawdepth1) #model_VWC lowest AIC/BIC
 
 BIC(model_temp, model_thaw, model_VWC, model_soiltempthawdepth1)#model_VWC lowest AIC/BIC
@@ -351,12 +351,12 @@ model_VWCthawdepth <- gls(flux_value ~ landscape_position + VWC + thawdepth,
                         data = df_GPP, method = "ML")
 
 anova(model_VWC, model_VWCsoiltemp, model_VWCthawdepth)
-anova(model_VWC, model_VWCsoiltemp) #p=0.08, adding temp to VWC does not imrpove model 
-anova(model_VWC, model_VWCthawdepth) #p=0.5, adding temp to VWC does not imrpove model 
+anova(model_VWC, model_VWCsoiltemp) #p=0.08, adding temp to VWC does not improve model 
+anova(model_VWC, model_VWCthawdepth) #p=0.5, adding temp to VWC does not improve model 
 anova(model_VWCsoiltemp, model_VWCthawdepth) #VWCsoiltemp lower AIc/BIC, no p 
 anova(model_VWC, model_VWCsoiltemp)#p=0.08, no sig diff 
 
-#Appears neither thaw depth or soil temp improve model, VWC is best
+#Appears neither thaw depth or soil temp improve model, VWC model is best
 
 
 
@@ -385,14 +385,19 @@ model_random2 <- lme(flux_value ~ landscape_position + VWC,
 # Compare
 anova(model_fixed, model_random) #p=0.9, random effect of plot ID does not improve model 
 anova(model_fixed, model_random2) #p=0.99, random effect of plot type does not improve model 
+
+#suggests having a random effect does not improve model, so exclude random effect 
 ```
 
 #Step 4: Test for variance structure 
 ```{r}
 # test if adding a variance structure is appropriate 
+
+#landscape position as a variance structure 
+#no var structure 
 model_homoscedastic <- gls(flux_value ~ landscape_position + VWC, 
                           data = df_GPP, method = "ML")
-
+#with var structure 
 model_heteroscedastic <- gls(flux_value ~ landscape_position + VWC, 
                             weights = varIdent(form = ~1|landscape_position),
                             data = df_GPP, method = "ML")
@@ -400,21 +405,7 @@ model_heteroscedastic <- gls(flux_value ~ landscape_position + VWC,
 # Compare
 anova(model_homoscedastic, model_heteroscedastic) #p=<0.015 SIG*; var structure of landpos improves model 
 
-
-# test if adding a variance structure is appropriate 
-model_homoscedastic <- gls(flux_value ~ landscape_position + VWC, 
-                          data = df_GPP, method = "ML")
-anova(model_homoscedastic, type = "marginal", test = TRUE)#VWC p = 0.03, *sig
-
-
-model_heteroscedastic <- gls(flux_value ~ landscape_position + VWC, 
-                            weights = varIdent(form = ~1|landscape_position),
-                            data = df_GPP, method = "ML")
-anova(model_heteroscedastic, type = "marginal", test = TRUE)#none sig 
-
-
-#~~~~~~~~~~re-running looking at multiple var structure 
-
+#~~~~~~~~~~~~~~~~~~~~testing whether plot_type var structure is appropriate~~~~~~~~~~~~~~~~~~~~~
 model_heteroscedastic2 <- gls(flux_value ~ landscape_position + VWC, 
                             weights = varIdent(form = ~1|plot_type),
                             data = df_GPP, method = "ML")
@@ -422,18 +413,22 @@ anova(model_heteroscedastic2, type = "marginal", test = TRUE)#landpos p = 0.05, 
 
 # Compare
 anova(model_homoscedastic, model_heteroscedastic2) #p<0.0049, model improves with plot type var structure 
-anova(model_heteroscedastic, model_heteroscedastic2)#no p, appears using plot type var structure may be better fit, lower AIC/BIC, higher logLik
+anova(model_heteroscedastic, model_heteroscedastic2)#no p, appears using plot type var structure may be better fit compared to using landscape position as var structure, lower AIC/BIC, higher logLik
 
+
+#~~~~~~~~~~looking at multiple var structure, landscape position & plot type~~~~~~~~~~~~~~~~~~ 
 
 model_heteroscedastic3 <- gls(flux_value ~ landscape_position + VWC, 
                             weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
                             data = df_GPP, method = "ML")
 anova(model_heteroscedastic3, type = "marginal", test = TRUE)#landpos p=0.02, SIG*
                             
-                            #varComb(varIdent(form = ~ 1| inundated), varIdent(form = ~ 1 | landscape_position)))
+                         
 
 anova(model_homoscedastic, model_heteroscedastic3) # hetero3 p<0.001, hetero3 better model 
 anova(model_heteroscedastic2, model_heteroscedastic3)#p<0.001, hetero3 better model 
+
+#seems having both landpos and plot type as var structure significantly improves the model 
 ```
 
 #Step 5: Try adding any remaining non-correlated variables back in to see if it improves the model (use reduction and addition / reduced models to test if various un-correlated predictors improve the model or not, and favor the simpler model)
@@ -518,7 +513,7 @@ model_2var <- gls(flux_value ~ landscape_position + VWC + soil_temp_10_cm,
                  data = df_GPP, method = "ML")
 
 # Compare
-anova(model_1var, model_2var) #p=0.048, adding soil temp maay marginally improve model - will have to cross validate 
+anova(model_1var, model_2var) #p=0.048, adding soil temp may marginally improve model - will have to cross validate 
 
 #try variable thawdepth 
 model_1var <- gls(flux_value ~ landscape_position + VWC, 
@@ -550,7 +545,7 @@ model_3var <- gls(flux_value ~ landscape_position + VWC + thawdepth + soil_temp_
                 weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
                  data = df_GPP, method = "ML")
 
-anova(model_1var, model_3var) #p-0.6, lower AIC/BIC in 1var 
+anova(model_1var, model_3var) #p=0.6, no sig improvement, lower AIC/BIC in 1var 
 
 
 #test interaction between land post and VWC
@@ -575,7 +570,7 @@ anova(model_1var2, model_interact2)#p=0.7, model without interaction better, not
 
 ```
 
-#*muktiple var structure copied over 
+#*multiple var structure copied over 
 ```{r}
 #combined var structure as suggested may improve the model 
 # test variable soil temp (but this was correlated with VWC, just running to check if var structure changes this)
@@ -853,7 +848,7 @@ print(shapiro_test) #for gls final model: p<0.001; normality NOT supported
 residuals_gls <- residuals(GPP.final, type = "normalized")
 
 # Plot the autocorrelation function
-acf(residuals_gls, main = "Autocorrelation of Residuals") #want bars of Lag1 and higher to be below the blue-dotted lines of confidence -- ignore Lag0 ** Lag0 represents correlation of residuals with themselves and is always ~1, so this isn't useful and isn't a problem. Lag 1 shows corr between each residual and the prev residual, lag 2 = correlation between resisuals 2 steps apart, etc. **Focus on Lag1 and higher* 
+acf(residuals_gls, main = "Autocorrelation of Residuals") #want bars of Lag1 and higher to be below the blue-dotted lines of confidence -- ignore Lag0 ** Lag0 represents correlation of residuals with themselves and is always ~1, so this isn't useful and isn't a problem. Lag 1 shows corr between each residual and the prev residual, lag 2 = correlation between residuals 2 steps apart, etc. **Focus on Lag1 and higher* 
 
 #Result: no apparent autocorrelation -- 
 #All bars below the confidence interval dotted line = ok
@@ -901,7 +896,7 @@ leveneTest(std_resid ~ df_GPP$landscape_position) #p=0.47; this says it's ok
 #Non-parametric approach 
 
 #### Important to note KW test is the non-parametric equivalent of a one-way anova, so it can only test one variable at a time, and can't test continuous/numeric variables. It also can't incorporate a variance structure. Spearman Correlation can be used for continuous variables*
-#testing each var independently isn't ideal because it can't capture what might happen when other variables are included...
+#testing each var independently isn't ideal because it can't capture what might happen when other variables are included...therefore it's better to find a test that can account for multiple variables, like the robust regression in code chunk following this one 
 ```{r}
 # Test landscape position effect on GPP
 kruskal.test(flux_value ~ landscape_position, data = df_GPP) #p=0.18, not sig 
@@ -932,7 +927,7 @@ cor.test(df_GPP$flux_value, df_GPP$thawdepth, method = "spearman") #p=0.09, not 
 ```{r}
 library(MASS)
 library(car)
-#just testing reduced and full models 
+#just testing reduced and full models to cross-ref and cross-validate 
 robust_model1 <- rlm(flux_value ~ landscape_position + soil_temp_10_cm , 
                     data = df_GPP)
 summary(robust_model1) 
@@ -960,7 +955,7 @@ Anova(robust_model3, type = "II") #soil temp sig, p = 0.01; VWC p = 0.037, but t
 ```
 
 
-#Attempting to test robust regression models - coding help from Claude 
+#Attempting to test "goodness of fit" of the various robust regression models - coding help from Claude 
 ```{r}
 # Define a function to calculate AIC for robust regression
 rlm_AIC <- function(model) {
@@ -980,7 +975,7 @@ rlm_AIC(robust_model3)
 #Results:
 # [1] -3321.921
 # [1] -3321.558
-# [1] -3322.725 --> marginally best, soil temp + VWC 
+# [1] -3322.725 --> marginally lowest AIC, marginally best, soil temp + VWC model 
 # [1] -3321.024
 ```
 
