@@ -662,7 +662,7 @@ m_VWC<- gls(flux_value ~ landscape_position + VWC,
 
 ```
 
-#Step 6: Double check best correlated var was chosen, with and without extra var, now that variance structure was added 
+#Step 6: Double check best correlated var was chosen now that variance structure was added 
 ```{r}
 #test soil temp and thawdepth, and with and without VWC
 
@@ -786,7 +786,7 @@ library(car)
 vif(GPP.final) # all <2, so should be ok! 
 ```
 
-Plot model residuals and QQplot 
+#Plot model residuals and QQplot 
 ```{r}
 #plot model residuals (homogeneity of variance)
 plot(GPP.final)
