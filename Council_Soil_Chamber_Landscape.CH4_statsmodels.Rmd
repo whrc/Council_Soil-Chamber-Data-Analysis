@@ -263,6 +263,38 @@ fisher.test(cont_table) #p=0.001, correlated
 
 
 ```
+
+#Alt ways to test corr between continuous and categorical variables - help from Claude
+
+```{r}
+# Point-Biserial Correlation: For binary variables like inundated (Yes/No)
+# The point-biserial correlation is essentially a Pearson correlation where one variable is continuous (VWC) and the other is dichotomous (inundated Yes/No). It ranges from -1 to +1, with the interpretation similar to other correlation coefficients:
+
+library(ltm)
+biserial.cor(df_FCH4$VWC, as.numeric(df_FCH4$inundated == "Y")) #means "Y" is coded as 1, and "N" is coded as 0
+#Result: -0.4412363 --> shows moderate neg correlation, which seems to imply that the relationship is inverse which is odd......not sure about this approach 
+
+
+
+#Kruskall-Wallis test - if sig, shows there is some kind of association between the variables 
+kruskal.test(VWC ~ landscape_position, data = df_FCH4)#p<0.001, SIG
+kruskal.test(inundated ~ landscape_position, data = df_FCH4)#p<0.001, SIG*
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #Testing models for CH4 using complete cases 
 
 #Step 1: Determine which of the correlated variables to keep
@@ -745,6 +777,36 @@ leveneTest(std_resid ~ df_FCH4$landscape_position)
 #model_interact3: p=0.16, ok 
 
 ```
+#just seeing what the gls model says in terms of variable significance
+```{r}
+library(car)
+gls_VWC <- gls(flux_value ~ landscape_position + VWC, 
+                  weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
+                 data = df_FCH4, method = "REML")
+summary(gls_VWC)
+anova(gls_VWC) #landpos p<0.001, SIG*; VWC p = 0.044, *SIG marginal 
+Anova(gls_VWC, type = "II") #landpos p <0.001; VWC p = 0.04
+# Using the standard anova function with F tests
+anova(gls_VWC, type = "marginal", test = TRUE) #landpos p<0.001, VWC p = 0.04
+
+library(lsmeans)
+lsmeans(gls_VWC, adjust = "Tukey", pairwise ~ landscape_position) #lowland - upland p<0.001, SIG*
+
+#~~~~~~~~~~~~~~ VWC + inun ~~~~~~~~~~~~~~~~~~~~~~~~~
+
+gls_VWCinun <- gls(flux_value ~ landscape_position + VWC + inundated, 
+                  weights = varComb(varIdent(form = ~1|plot_type),varIdent(form = ~ 1 |                                             landscape_position)),
+                 data = df_FCH4, method = "REML")
+summary(gls_VWCinun) 
+anova(gls_VWCinun) #landpos p<0.001, SIG*; VWC p = 0.038, SIG*, inundated p<0.001 SIG*
+Anova(gls_VWCinun, type = "II") #landpos p <0.001; inundated p <0.001, VWC p = 0.06, not sig 
+# Using the standard anova function with F tests
+anova(gls_VWCinun, type = "marginal", test = TRUE) #landpos p=0.001, VWC p = 0.06, inundated p<0.001
+
+
+lsmeans(gls_VWCinun, adjust = "Tukey", pairwise ~ landscape_position) #lowland - upland p=0.01, SIG*
+```
+
 
 #Non-parametric approach 
 
@@ -788,71 +850,95 @@ library(MASS)
 library(car)
 #just testing reduced and full models - cross-validating 
 
-robust_modelVWCinun <- rlm(FCH4 ~ landscape_position + VWC + inundated, 
+robust_modelVWCinun <- rlm(flux_value ~ landscape_position + VWC + inundated, 
                     data = df_FCH4)
 summary(robust_modelVWCinun) 
 Anova(robust_modelVWCinun, type = "II") #landpos p = 0.29; VWC and inundated p<0.001, SIG* 
 
 
 
-robust_model1 <- rlm(FCH4 ~ landscape_position + VWC, 
+robust_model1 <- rlm(flux_value  ~ landscape_position + VWC, 
                     data = df_FCH4)
 summary(robust_model1) 
 Anova(robust_model1, type = "II") #landpos p=0.07, VWC <0.001 *SIG*
 
 
-robust_model2 <- rlm(FCH4 ~ landscape_position + soil_temp_10_cm, 
+robust_model2 <- rlm(flux_value  ~ landscape_position + soil_temp_10_cm, 
                     data = df_FCH4)
 summary(robust_model2) 
 Anova(robust_model2, type = "II") #landpos p<0.001, SIG, and soil temp p=0.03, *SIG*, 
 
 
-robust_model3 <- rlm(FCH4 ~ landscape_position + thawdepth, 
+robust_model3 <- rlm(flux_value  ~ landscape_position + thawdepth, 
                     data = df_FCH4)
 summary(robust_model3) 
 Anova(robust_model3, type = "II") #lanpos p = 0.08; thawdepth <0.001 SIG*
 
 
 
-robust_model4 <- rlm(FCH4 ~ landscape_position + VWC + thawdepth, 
+robust_model4 <- rlm(flux_value  ~ landscape_position + VWC + thawdepth, 
                     data = df_FCH4)
 summary(robust_model4) 
 Anova(robust_model4, type = "II") #landpos p = 0.8; VWC and thawdepth p<0.001 *SIG
 
 
 
-robust_model5 <- rlm(FCH4 ~ landscape_position + VWC + soil_temp_10_cm + thawdepth,
+robust_model5 <- rlm(flux_value  ~ landscape_position + VWC + soil_temp_10_cm + thawdepth,
                     data = df_FCH4)
 summary(robust_model5) 
 Anova(robust_model5, type = "II") #landpos p = 0.7; soil temp p = 0.05, VWC and thawdepth p<0.001 *SIG
 
 
-robust_model6 <- rlm(FCH4 ~ landscape_position + VWC + soil_temp_10_cm + thawdepth + inundated,
+robust_model6 <- rlm(flux_value  ~ landscape_position + VWC + soil_temp_10_cm + thawdepth + inundated,
                     data = df_FCH4)
 summary(robust_model6) 
 Anova(robust_model6, type = "II") #landpos p = 0.8; soil temp p = 0.13; VWC, thawdepth, and inundated p <0.001 *SIG 
 
 
-robust_interact <- rlm(FCH4 ~ landscape_position * VWC,
+robust_interact <- rlm(flux_value  ~ landscape_position * VWC,
                     data = df_FCH4)
 summary(robust_interact) 
 Anova(robust_interact, type = "II") #all p<0.001, SIG*
 
 
-robust_interact2 <- rlm(FCH4 ~ landscape_position + VWC * inundated,
+robust_interact2 <- rlm(flux_value  ~ landscape_position + VWC * inundated,
                     data = df_FCH4)
 summary(robust_interact2) 
 Anova(robust_interact2, type = "II") #all p <0.001, SIG
 
 
-robust_interact3 <- rlm(FCH4 ~ landscape_position * VWC * inundated,
+robust_interact3 <- rlm(flux_value  ~ landscape_position * VWC * inundated,
                     data = df_FCH4)
 summary(robust_interact3) 
 Anova(robust_interact3, type = "II") #all p <0.001, SIG*
 
 
+robust_interact4 <- rlm(flux_value  ~ landscape_position + inundated * VWC + thawdepth,
+                    data = df_FCH4)
+summary(robust_interact4) 
+Anova(robust_interact4, type = "II") #all p <0.001, SIG*
 
 
+robust_interact5 <- rlm(flux_value  ~ landscape_position + inundated * VWC * thawdepth,
+                    data = df_FCH4)
+summary(robust_interact5) 
+Anova(robust_interact5, type = "II") 
+#                          Df         F    Pr(>F)    
+# landscape_position        2    0.3203    0.7264  --> not sig   
+# inundated                 1 5969.7389 < 2.2e-16 ***
+# VWC                       1   61.3760 8.445e-13 ***
+# thawdepth                 1   61.8662 7.084e-13 ***
+# inundated:VWC             1   26.9201 6.871e-07 ***
+# inundated:thawdepth       1   23.1297 3.690e-06 ***
+# VWC:thawdepth             1    0.0257    0.8728 --> not sig  
+# inundated:VWC:thawdepth   1  382.3708 < 2.2e-16 ***
+# Residuals               148 
+
+
+robust_interact6 <- rlm(flux_value  ~ landscape_position * inundated * VWC + thawdepth,
+                    data = df_FCH4)
+summary(robust_interact6) 
+Anova(robust_interact6, type = "II")#p all sig 
 
 ```
 
@@ -874,24 +960,346 @@ rlm_AIC(robust_model2)
 rlm_AIC(robust_model3)
 rlm_AIC(robust_model4)
 rlm_AIC(robust_model5)
-rlm_AIC(robust_model5)
+rlm_AIC(robust_model6)
 rlm_AIC(robust_interact)
 rlm_AIC(robust_interact2)
 rlm_AIC(robust_interact3)
+rlm_AIC(robust_interact4)
+rlm_AIC(robust_interact5)
+rlm_AIC(robust_interact6)
 
 #Results:
-# [1] -4290.057
-# [1] -4263.414 -> lanpos + VWC 
-# [1] -4255.966 ** --> robust model 3, landpos + thawdepth 
-# [1] -4268.177
-# [1] -4274.599
-# [1] -4275.814
-# [1] -4275.814
-# [1] -4287.718
-# [1] -4289.911
-# [1] -4407.775
+# [1] 1473.265
+# [1] 1499.908
+# [1] 1507.356
+# [1] 1495.145
+# [1] 1488.723
+# [1] 1487.508
+# [1] 1487.508
+# [1] 1475.603
+# [1] 1473.41
+# [1] 1355.546 --> interact 3 
+# [1] 1473.168
+# [1] 1478.262
+# [1] 1354.918 * --> lowest, interact 6 
+```
+#IncMSE for soil chambers (?)
+```{r}
+library(randomForest)
+rf_soilCH4_full <- randomForest(flux_value  ~ landscape_position + VWC + soil_temp_10_cm + thawdepth + inundated + air_temp,
+                             data = df_FCH4,
+                             ntree = 500,
+                             importance = TRUE)
 
 
+# Look at variable importance
+varImpPlot(rf_soilCH4_full) #shows thaw depth is most important, followed by inundated, VWC - air temp is least powerful predictor 
+
+
+
+rf_soilCH4_fullinteract <- randomForest(flux_value  ~ landscape_position +  soil_temp_10_cm + thawdepth + VWC * inundated + air_temp,
+                             data = df_FCH4,
+                             ntree = 500,
+                             importance = TRUE)
+
+
+# Look at variable importance
+varImpPlot(rf_soilCH4_fullinteract) #shows thaw depth is most important, followed by inundated, VWC - air temp is least powerful predictor 
+
+#removing air temp and inundated 
+rf_soilCH4_reduced1 <- randomForest(flux_value  ~ landscape_position +  soil_temp_10_cm + thawdepth + VWC,
+                             data = df_FCH4,
+                             ntree = 500,
+                             importance = TRUE)
+
+
+# Look at variable importance
+varImpPlot(rf_soilCH4_reduced1) #shows thaw depth is most important, followed VWC - air temp is least powerful predictor 
+
+
+#landpos and swapping out soil temp, thaw depth, VWC, inundated, and air temp   
+rf_soilCH4_reduced2 <- randomForest(flux_value  ~ landscape_position + air_temp,
+                             data = df_FCH4,
+                             ntree = 500,
+                             importance = TRUE)
+
+
+# Look at variable importance
+varImpPlot(rf_soilCH4_reduced2) 
+# soil temp more important than landpos, but incMSE was around 0.6
+#VWC more important than landpos, incMSE was around 8
+#thawdepth importance around 20 
+#inundatd incMSE around 19
+#airtemp incMSE around 3 
+
+
+#taking out landpos   
+rf_soilCH4_reduced3 <- randomForest(flux_value ~ soil_temp_10_cm + thawdepth + VWC + inundated + air_temp,
+                             data = df_FCH4,
+                             ntree = 500,
+                             importance = TRUE)
+
+
+# Look at variable importance
+varImpPlot(rf_soilCH4_reduced3) #thawdepth most important at 10, followed by inundated at 4, soil temp and VWC ~2
+
+
+#taking out landpos & removing variables from full model    
+rf_soilCH4_reduced4 <- randomForest(flux_value ~ thawdepth + VWC,
+                             data = df_FCH4,
+                             ntree = 500,
+                             importance = TRUE)
+
+
+# Look at variable importance
+varImpPlot(rf_soilCH4_reduced4)
+#removed soil and air temp, so just thawdepth, VWC, and inundated: thawdepth most important at 12, then inundated at 8, last VWC at 4 
+#removed VWC, just thawdepth and inundated: now inundated is most important at 17.5, thawdepth at 14.5 
+#thaw depth and VWC: thawdepth is most important at 14, VWC at 8 
+
+#interaction terms 
+df_FCH4$VWC_thawdepth_interact <- df_FCH4$VWC * df_FCH4$thawdepth
+#The interaction() function is designed for categorical variables and creates a new factor variable representing all possible combinations of levels.e.g., df_FCH4$inundated_VWC <- interaction(df_FCH4$inundated, df_FCH4$VWC)
+
+rf_soilCH4_interact <- randomForest(flux_value ~ thawdepth + VWC + inundated + VWC_thawdepth_interact,
+                             data = df_FCH4,
+                             ntree = 500,
+                             importance = TRUE)
+
+
+# Look at variable importance
+varImpPlot(rf_soilCH4_interact) #thawdepth = 10, VWC_thawdepth interact = 8, inundated = 6, VWC = ~5 
+
+
+
+rf_soilCH4_robustinteract6 <- randomForest(flux_value ~ landscape_position + inundated + VWC + thawdepth,
+                             data = df_FCH4,
+                             ntree = 500,
+                             importance = TRUE)
+
+varImpPlot(rf_soilCH4_robustinteract6)
+
+```
+
+
+#Partial regressions, code from Claude 
+```{r}
+#partial regressions looks at contribution of predictor variable while holding the other variables constant
+# The partial regression plots show the relationship between each predictor and the response after removing the linear effects of all other predictors. The slope of the line in each plot corresponds to the regression coefficient for that variable in the full model.
+
+# Method 1: Using car package
+library(car)
+avPlots(multiple_reg)  # Creates all partial regression plots
+# Creating a plot for a specific variable:
+avPlot(multiple_reg, "soil_temp_10_cm")
+
+# Method 2: Manual calculation for one variable (e.g., soil_temp_10_cm)
+# Step 1: Regress the response on all predictors except the focal one
+model_without_soiltemp <- lm(flux_value ~ landscape_position + VWC + thawdepth + inundated, 
+                            data = df_FCH4)
+resid_y <- residuals(model_without_soiltemp)
+
+# Step 2: Regress the focal predictor on all other predictors
+model_soiltemp <- lm(soil_temp_10_cm ~ landscape_position + VWC + thawdepth + inundated, 
+                    data = df_FCH4)
+resid_x <- residuals(model_soiltemp)
+
+# Step 3: Plot the residuals against each other
+plot(resid_x, resid_y, 
+     xlab = "soil_temp_10_cm | others", 
+     ylab = "flux_value | others",
+     main = "Partial Regression Plot for Soil Temperature")
+abline(lm(resid_y ~ resid_x), col = "red")
+
+
+#Results:
+#landpos upland and slope both have relatively flat line, meaning there's a minimal relationship with methane flux after accounting for other variables. --> lowland was used as a reference point, so it tests upland vs lowland and slope vs lowland. If I want to see slope vs upland, I can change the reference point like this:
+
+#df_FCH4$landscape_position <- relevel(factor(df_FCH4$landscape_position), ref = "upland")
+
+#VWC shows a slight positive trend, but line also mostly flat, so effect seems minimal
+#soil temp line is basically flat, so very minimal explanatory power after other variables are controlled for 
+#thawdepth has most clear pos trend, showing it has most explanatory power for methane fluxes - followed by slight pos trend of inundated  
+
+
+df_FCH4$landscape_position <- relevel(factor(df_FCH4$landscape_position), ref = "upland")
+avPlots(multiple_reg) 
+```
+
+
+```{r}
+library(ppcor) #Pearson corr - which assumes normality - so consider these carefully and cross-ref with non-parametric tests 
+pcor.test(df_FCH4$flux_value, df_FCH4$soil_temp_10_cm, 
+         df_FCH4[, c("VWC", "thawdepth")]) # Omitting categorical variables; uses Pearson corr
+#partial correlation coeff is 0.18, p value is 0.018 *SIG* - so while relationship with methane fluxes is minimal, it appears significant 
+
+pcor.test(df_FCH4$flux_value, df_FCH4$VWC,
+         df_FCH4[, c("soil_temp_10_cm", "thawdepth")])#coeff = 0.19, p = 0.014 *SIG*, so minimal but significant effect of VWC on fluxes 
+
+pcor.test(df_FCH4$flux_value, df_FCH4$thawdepth,
+         df_FCH4[, c("soil_temp_10_cm", "VWC")]) #coeff = 0.33, p<0.001, SIG* 
+```
+
+
+
+#Singular var robust regression 
+```{r}
+#landpos
+robust_landpos <- rlm(flux_value  ~ landscape_position, 
+                    data = df_FCH4)
+summary(robust_landpos) 
+Anova(robust_landpos, type = "II") #landpos p<0.001, SIG*
+
+#VWC
+robust_VWC <- rlm(flux_value  ~ VWC, 
+                    data = df_FCH4)
+summary(robust_VWC) 
+Anova(robust_VWC, type = "II") #p<0.001, SIG*
+
+
+#soil temp 
+robust_soiltemp <- rlm(flux_value  ~ soil_temp_10_cm, 
+                    data = df_FCH4)
+summary(robust_soiltemp) 
+Anova(robust_soiltemp, type = "II") #p<0.02, SIG*
+
+#thaw depth
+robust_thawdepth <- rlm(flux_value  ~ thawdepth, 
+                    data = df_FCH4)
+summary(robust_thawdepth) 
+Anova(robust_thawdepth, type = "II") #p<0.001, SIG*
+
+
+#inundated
+robust_inundated <- rlm(flux_value  ~ inundated, 
+                    data = df_FCH4)
+summary(robust_inundated) 
+Anova(robust_inundated, type = "II") #p<0.001, SIG*
+
+
+#air temp
+robust_airtemp <- rlm(flux_value  ~ air_temp, 
+                    data = df_FCH4)
+summary(robust_airtemp) 
+Anova(robust_airtemp, type = "II") #p<0.7, not sig 
+
+
+#landpos * inundated
+robust_interact<- rlm(flux_value  ~ landscape_position * inundated,  
+                    data = df_FCH4)
+summary(robust_interact) 
+Anova(robust_interact, type = "II") #all p < 0.001, SIG* 
+
+
+#landpos * VWC
+robust_interact2<- rlm(flux_value  ~ landscape_position * VWC,  
+                    data = df_FCH4)
+summary(robust_interact2) 
+Anova(robust_interact2, type = "II") #all p < 0.001, SIG* 
+
+#inun * VWC
+robust_interact3<- rlm(flux_value  ~ inundated * VWC,  
+                    data = df_FCH4)
+summary(robust_interact3) 
+Anova(robust_interact3, type = "II") #all p < 0.001, SIG* 
+
+
+#inun * VWC
+robust_interact4<- rlm(flux_value  ~ thawdepth * VWC,  
+                    data = df_FCH4)
+summary(robust_interact4) 
+Anova(robust_interact4, type = "II") #all p < 0.001, SIG* 
+
+
+#inun * landpos
+robust_interact5<- rlm(flux_value  ~ inundated * landscape_position,  
+                    data = df_FCH4)
+summary(robust_interact5) 
+Anova(robust_interact5, type = "II") #all p < 0.001, SIG* 
+
+```
+
+
+#Best models (??? seemingly?)
+```{r}
+robust_model1 <- rlm(flux_value  ~ landscape_position + VWC, 
+                    data = df_FCH4)
+summary(robust_model1) 
+Anova(robust_model1, type = "II") 
+#                     Df      F    Pr(>F)    
+# landscape_position   2  2.665   0.07281 .  
+# VWC                  1 46.617 1.872e-10 ***
+# Residuals          154 
+
+
+robust_model3 <- rlm(flux_value  ~ landscape_position + thawdepth, 
+                    data = df_FCH4)
+summary(robust_model3) 
+Anova(robust_model3, type = "II") 
+#                     Df       F    Pr(>F)    
+# landscape_position   2  2.5313   0.08286 .  
+# thawdepth            1 60.7760 8.933e-13 ***
+# Residuals          154 
+
+#second-lowest AIC 
+robust_interact3 <- rlm(flux_value  ~ landscape_position * VWC * inundated,
+                    data = df_FCH4)
+summary(robust_interact3) 
+Anova(robust_interact3, type = "II") 
+# Response: flux_value
+#                                   Df        F    Pr(>F)    
+# landscape_position                 2  2432.54 < 2.2e-16 ***
+# VWC                                1   525.68 < 2.2e-16 ***
+# inundated                          1 19333.36 < 2.2e-16 ***
+# landscape_position:VWC             2   384.56 < 2.2e-16 ***
+# landscape_position:inundated       2 12279.43 < 2.2e-16 ***
+# VWC:inundated                      1  2149.55 < 2.2e-16 ***
+# landscape_position:VWC:inundated   2 12518.89 < 2.2e-16 ***
+# Residuals                        146  
+
+
+#*lowest AIC 
+robust_interact6 <- rlm(flux_value  ~ landscape_position * inundated * VWC + thawdepth,
+                    data = df_FCH4)
+summary(robust_interact6) 
+Anova(robust_interact6, type = "II")
+# Response: flux_value
+#                                   Df        F    Pr(>F)    
+# landscape_position                 2 1345.564 < 2.2e-16 ***
+# inundated                          1 7977.205 < 2.2e-16 ***
+# VWC                                1   95.134 < 2.2e-16 ***
+# thawdepth                          1    7.972  0.005419 ** 
+# landscape_position:inundated       2 5906.508 < 2.2e-16 ***
+# landscape_position:VWC             2  225.144 < 2.2e-16 ***
+# inundated:VWC                      1 1030.584 < 2.2e-16 ***
+# landscape_position:inundated:VWC   2 5982.930 < 2.2e-16 ***
+# Residuals                        145 
+
+
+
+robust_m4 <- rlm(flux_value  ~ landscape_position + thawdepth + inundated + VWC, 
+                    data = df_FCH4)
+summary(robust_m4) 
+Anova(robust_m4, type = "II") 
+#                     Df         F    Pr(>F)    
+# landscape_position   2    0.2249 0.7988563    
+# thawdepth            1   15.7315 0.0001121 ***
+# inundated            1 3456.9916 < 2.2e-16 ***
+# VWC                  1   12.8491 0.0004543 ***
+# Residuals          152 
+
+
+robust_m5 <- rlm(flux_value  ~ landscape_position + thawdepth + inundated + VWC + soil_temp_10_cm, 
+                    data = df_FCH4)
+summary(robust_m5) 
+Anova(robust_m5, type = "II") 
+
+#                     Df         F    Pr(>F)    
+# landscape_position   2    0.2127 0.8086155    
+# thawdepth            1   14.9436 0.0001641 ***
+# inundated            1 3195.8791 < 2.2e-16 ***
+# VWC                  1   12.7624 0.0004750 ***
+# soil_temp_10_cm      1    2.2654 0.1343804  
 ```
 
 
