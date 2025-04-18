@@ -783,13 +783,18 @@ emmeans(gls.plot.soil_temp_10_cm, adjust = "Tukey", pairwise ~ plot_type) #contr
 ```{r}
 # Create the boxplot: NEE and RECO flux vs landscape position 
 
-landscape_C_fluxes <- ggplot(df_long, aes(x = landscape_position, y = (flux_value *1/12 * 1000000), fill = flux_type)) +
-  geom_boxplot() +
-  labs(title = "Council Soil Chamber GPP, NEE, and Respiration by Landscape Position",
+df_long_cc <- df_long %>%
+  filter(!is.na(flux_value))
+
+
+landscape_C_fluxes <- ggplot(df_long_cc, aes(x = landscape_position, y = (flux_value *1/12 * 1000000), fill = flux_type)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  stat_summary(fun = mean, geom = "point", shape = 18, color = "black", size = 3, position = position_dodge(0.8))+
+  labs(title = "Council Soil Chamber GPP, NEE, and RECO by Landscape Position",
        x = "Landscape Position",
        #y = expression(Flux~Value~(gCO[2]-C~m^-2~s^-1)),
-        #y = expression(Flux~Value~(*mu*molCO[2]-C/m^2/s)),
-        y = expression("Flux Value (" * mu * "mol " ~ m^-2 * ~ s^-1 * ")"),
+        y = expression("Flux ("*mu* "mol" ~ CO[2]-C/m^2/s*")"),
+        #y = expression("Flux Value (" * mu * "mol " ~ C ~ m^-2 * ~ s^-1 * ")"),
        fill = "Flux Type") +
   geom_hline(yintercept = 0) +
     scale_y_continuous(limits = c(-6, 6))+ 
@@ -801,7 +806,7 @@ landscape_C_fluxes <- ggplot(df_long, aes(x = landscape_position, y = (flux_valu
    axis.title.y = element_text(size = 14),
    axis.text.y = element_text(size = 12, face = "bold"))
 
-
+landscape_C_fluxes 
 
 # EC plot type NEE and RECO flux vs landscape position 
 ggplot(df_long %>% filter(plot_type == "EC"),
@@ -871,14 +876,14 @@ ggplot(df_long %>% filter(plot_type == "BGC"),
 ```
 #save image to maintain dimensions 
 ```{r}
-# ggsave(
-#   filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_C_fluxes.png",  # File name and extension
-#   plot = landscape_C_fluxes,        # The plot to save (default is the last plot created)
-#   width = 15,                 # Width in inches
-#   height = 10,                # Height in inches
-#   dpi = 600,                 # Resolution in dots per inch
-#   units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
-# )
+ ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_C_fluxes2.png",  # File name and extension
+  plot = landscape_C_fluxes,        # The plot to save (default is the last plot created)
+  width = 15,                 # Width in inches
+  height = 10,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
 ```
 #methane exploratory 
 ```{r}
@@ -1339,7 +1344,7 @@ ggplot(df_RECO, aes(x = soil_temp_10_cm, y = flux_value)) +
 
 #AGU figs
 ```{r}
-#looking at FCH4 (in g/m2/s) by landscape position and plot type, facet wrapped --> revert to umolCO2 and nmolCH4*
+#looking at FCH4 (in g/m2/s) by landscape position and plot type, facet wrapped --> revert to umolCO2 and nmolCH4* --> actually made FCH4 to umol 
 ggplot(df_long,
        aes(x=landscape_position, y = (FCH4 *1/12 * 1000000), fill = plot_type))+
   geom_boxplot()+
@@ -1410,19 +1415,25 @@ ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1/12 * 1000000), fill = i
    axis.text.y = element_text(size = 12, face = "bold"))+
   facet_wrap(vars(plot_type), scales = "free_x")
 
-# all plot type - FCH4 vs landscape position & inundation 
+
+
+#Landscape CH4 for AGU poster 
+
+# all plot type - FCH4 vs landscape position & inundation - in umol/m2/s
 landscape_CH4_fluxes <- ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1/12 * 1000000), fill = inundated)) +
-  geom_boxplot() +
+  geom_boxplot(position = position_dodge(0.8)) +
+  stat_summary(fun = mean, geom = "point", shape = 18, color = "black", size = 4, position = position_dodge(0.8))+
   labs(title = "Methane Fluxes vs Landscape Position and Inundation",
        x = "Landscape Position",
          #y = expression(Methane~Flux~(gCH[4]-C/m^2/s)),
        #y = expression(FCH[4]~"(" * mu * "mol" ~ CH[4]-C~m^-2~s^-1),
-       y = expression(FCH[4]~(CH[4]-C~μmol~m^{-2}~s^{-1})),
+       #y = expression(FCH[4]~(CH[4]-C~μmol~m^{-2}~s^{-1})),
+       y = expression("Flux ("*mu* "mol" ~ CH[4]-C/m^2/s*")"),
        fill = "Inundated")+
    geom_hline(yintercept = 0)+
  scale_y_continuous(limits = c(-0.15,0.46), #cut out a few bit outliers here to show trend better, -0.25 and 0.5 looks good but trying others 
   breaks = seq(-0.15, 0.46, 0.15))+
-                     #labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
+#labels = function(x) x / 1000)+# Scale y-axis labels back since FCH4 was scaled by 1000
   theme_bw()+ 
   theme(
    axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
@@ -1431,6 +1442,8 @@ landscape_CH4_fluxes <- ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1
    axis.text.y = element_text(size = 12, face = "bold"))#+
   facet_wrap(vars(plot_type), scales = "free_x")
   
+landscape_CH4_fluxes
+  
   # ggsave("C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/seasonal_budgets_CO2.png", seasonal_budgets_CO2, 
   #      width = 10, height = 7, dpi = 600)
 ```
@@ -1438,7 +1451,7 @@ landscape_CH4_fluxes <- ggplot(df_long, aes(x = landscape_position, y = (FCH4 *1
 #save image to maintain dimensions 
 ```{r}
 ggsave(
-  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_CH4_fluxes.png",  # File name and extension
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_CH4_fluxes2.png",  # File name and extension
   plot = landscape_CH4_fluxes,        # The plot to save (default is the last plot created)
   width = 15,                 # Width in inches
   height = 10,                # Height in inches
