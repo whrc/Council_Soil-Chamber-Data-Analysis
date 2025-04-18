@@ -105,6 +105,152 @@ sum(is.na(df_GPP$inundated))
 sum(is.na(df_GPP$air_temp))
 
 ```
+#Summary of fluxes and enviro variables 
+
+#Summarize by landscape position
+
+```{r}
+library(dplyr)
+#GPP is in g/m2/s, convert back to umol (?) --> flux_value_umol
+df_GPP$flux_value_umol <- df_GPP$flux_value *1/12 * 1000000 #same as flux_CO2
+
+#generates Std.Error and Std.Dev for avgs of each site type to use for ggplot & 95% confidence interval calcs
+
+landscape_GPP_summary <- df_GPP %>%
+  select(landscape_position, inundated, flux_value, flux_value_umol, thawdepth, soil_temp_10_cm, air_temp, VWC) %>%
+  group_by(landscape_position) %>%
+  summarise(across(where(is.numeric), #chooses only numeric columns 
+                   list(mean = ~mean(., na.rm = TRUE), # ~ means function, "." means apply to each current column
+                        sd = ~sd(., na.rm = TRUE), # Standard deviation (describe spread)
+                        n = ~sum(!is.na(.)),
+                        se = ~sd(., na.rm = TRUE) / sqrt(sum(!is.na(.))) # Standard error (inference about mean)
+                   ),
+                   .names = "{.col}_{.fn}"),
+            .groups = "drop")
+
+
+#format table, round to 2 decimal places --> this rounds flux value into 0.00 so we need to exclude it 
+landscape_GPP_summary_rounded <- landscape_GPP_summary  %>%
+  mutate(across(where(is.numeric), ~round(., 2)))
+
+#exclude flux value from rounding 
+landscape_GPP_summary_rounded <- landscape_GPP_summary  %>%
+  mutate(across(
+    where(is.numeric) & !starts_with("flux_value"), #the ! means to omit, so omits any columns starting with this word
+    ~round(., 2)
+  ))
+
+
+#OR use this, to round to 2 sig digits
+landscape_GPP_summary_rounded2 <- landscape_GPP_summary  %>%
+  mutate(across(where(is.numeric), ~signif(., 3)))
+
+
+#combine to round enviro vars to 2 decimals and flux values to 2 sig digits so they're all formatted similarly in output -- flux-value_umol rounded to 2 decimals 
+landscape_GPP_summary_rounded3 <- landscape_GPP_summary %>%
+  mutate(
+    across(
+      where(is.numeric) & !starts_with("flux_value"),
+      ~round(., 2)
+    ),
+     # flux_value_umol_* → round to 2 decimal places (keep numeric)
+    across(
+      c(flux_value_umol_mean, flux_value_umol_sd, flux_value_umol_se),
+      ~round(., 2)
+    ),
+    across(
+      c(flux_value_mean, flux_value_sd, flux_value_se), #rounds fluxes to 2 sig digits
+      ~formatC(., format = "e", digits = 2)
+    )
+  )
+
+
+
+write.csv(landscape_GPP_summary_rounded3, "C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/landscape_GPPflux_summary_rounded.csv", row.names = FALSE)
+
+```
+
+#Table: Summarize by landscape position and inundated or not 
+
+```{r}
+library(dplyr)
+#generates Std.Error and Std.Dev for avgs of each site type to use for ggplot & 95% confidence interval calcs
+
+landscapeinun_GPP_summary <- df_GPP %>%
+  select(landscape_position, inundated, flux_value, flux_value_umol, thawdepth, soil_temp_10_cm, air_temp, VWC) %>%
+  group_by(landscape_position, inundated) %>%
+  summarise(across(where(is.numeric),
+                   list(mean = ~mean(., na.rm = TRUE), # ~ means function, "." means apply to each current column
+                        sd = ~sd(., na.rm = TRUE), # Standard deviation (describe spread)
+                        n = ~sum(!is.na(.)),
+                        se = ~sd(., na.rm = TRUE) / sqrt(sum(!is.na(.))) # Standard error (inference about mean)
+                   ),
+                   .names = "{.col}_{.fn}"),
+            .groups = "drop")
+
+
+#format table, round to 2 decimal places --> this rounds flux value into 0.00 so we need to exclude it 
+landscapeinun_GPP_summary_rounded <- landscapeinun_GPP_summary  %>%
+  mutate(across(where(is.numeric), ~round(., 2)))
+
+#exclude flux value from rounding 
+landscapeinun_GPP_summary_rounded <- landscapeinun_GPP_summary  %>%
+  mutate(across(
+    where(is.numeric) & !starts_with("flux_value"), #the ! means to omit, so omits any columns starting with this word
+    ~round(., 2)
+  ))
+
+
+#OR use this, to round to 2 sig digits
+landscapeinun_GPP_summary_rounded2 <- landscapeinun_GPP_summary  %>%
+  mutate(across(where(is.numeric), ~signif(., 3)))
+
+
+#combine to round enviro vars to 2 decimals and flux values to 2 sig digits so they're all formatted similarly in output
+landscapeinun_GPP_summary_rounded3 <- landscapeinun_GPP_summary %>%
+  mutate(
+    across(
+      where(is.numeric) & !starts_with("flux_value"),
+      ~round(., 2)
+    ),
+      # flux_value_umol_* → round to 2 decimal places (keep numeric)
+    across(
+      c(flux_value_umol_mean, flux_value_umol_sd, flux_value_umol_se),
+      ~round(., 2)
+    ),
+    across(
+      c(flux_value_mean, flux_value_sd, flux_value_se), #rounds fluxes to 2 sig digits
+      ~formatC(., format = "e", digits = 2)
+    )
+  )
+
+
+
+write.csv(landscapeinun_GPP_summary_rounded3, "C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/landscapeinun_GPPflux_summary_rounded.csv", row.names = FALSE)
+
+
+#format table so mean and SE occur in same line with +/- 
+
+library(tidyr)
+library(dplyr)
+
+landscapeinun_GPP_summary_combined <- landscapeinun_GPP_summary_rounded3%>%
+    mutate(
+    flux_value= paste0(flux_value_mean, " ± ", flux_value_se),
+    flux_value_umol= paste0(flux_value_umol_mean, " ± ", flux_value_umol_se), #rounds flux umol to 2 decimal places 
+    thawdepth = paste0(thawdepth_mean, " ± ", thawdepth_se),
+    VWC = paste0(VWC_mean, " ± ", VWC_se),
+    soil_temp = paste0(soil_temp_10_cm_mean, " ± ", soil_temp_10_cm_se),
+    air_temp = paste0(air_temp_mean, " ± ", air_temp_se)
+    # Continue for any others you'd like to combine
+  ) %>%
+   ungroup() %>%
+  select(landscape_position, inundated, flux_value, flux_value_umol, thawdepth, VWC, soil_temp, air_temp, ends_with("_n")) #ends with _n keeps columns with datapoint count for each var 
+
+write.csv(landscapeinun_GPP_summary_combined, "C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/landscapeinun_GPPflux_summary_combined2.csv", row.names = FALSE)
+
+```
+
 
 # Categorical Predictors: Variance and normality of categorical predictor variables 
 ```{r}
