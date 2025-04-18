@@ -1713,6 +1713,251 @@ plotPartial(pd_continuous, contour = TRUE,
 ```
 #NEE response to multiple variables based on actual observations
 ```{r}
+library(ggplot2)
+
+# Basic scatterplot with trend lines for each landscape position
+ggplot(df_NEE, aes(x = thawdepth, y = flux_value, color = landscape_position)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(title = "Observed NEE by Thaw Depth and Landscape Position",
+       x = "Thaw Depth (cm)",
+       y = "NEE (flux_value)",
+       color = "Landscape Position") +
+  theme_bw()
+
+# Faceted by landscape position (similar to interaction plot)
+ggplot(df_NEE, aes(x = thawdepth, y = flux_value)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  facet_wrap(~landscape_position) +
+  labs(title = "Observed NEE by Thaw Depth and Landscape Position",
+       x = "Thaw Depth (cm)",
+       y = "NEE (flux_value)") +
+  theme_bw()
+
+
+# Scatter plot with color representing NEE
+ggplot(df_NEE, aes(x = VWC, y = soil_temp_10_cm, color = flux_value)) +
+  geom_point(size = 3, alpha = 0.7) +
+  scale_color_gradient2(midpoint = median(df_NEE$flux_value),
+                       low = "blue", mid = "green", high = "yellow") +
+  labs(title = "Observed NEE by VWC and Soil Temperature",
+       x = "VWC (%)",
+       y = "Soil Temperature (10 cm)",
+       color = "NEE") +
+  theme_bw()
+
+# Or as a 2D density contour plot with NEE as fill color
+library(fields) # For interpolation
+
+# Create bins for VWC and soil_temp to aggregate flux values
+df_NEE$VWC_bin <- cut(df_NEE$VWC, breaks = 10)
+df_NEE$temp_bin <- cut(df_NEE$soil_temp_10_cm, breaks = 10)
+
+# Aggregate mean flux values by the bins
+agg_data <- aggregate(flux_value ~ VWC_bin + temp_bin, data = df_NEE, FUN = mean)
+
+# Get midpoints of bins
+agg_data$VWC_mid <- as.numeric(gsub(".*,(.*)\\]", "\\1", agg_data$VWC_bin))
+agg_data$temp_mid <- as.numeric(gsub(".*,(.*)\\]", "\\1", agg_data$temp_bin))
+
+# Plot the aggregated data
+ggplot(agg_data, aes(x = VWC_mid, y = temp_mid, fill = flux_value)) +
+  geom_tile() +
+  scale_fill_gradient2(midpoint = 0,
+                     low = "blue", mid = "green", high = "yellow") +
+  labs(title = "Observed NEE by VWC and Soil Temperature",
+       x = "VWC (%)",
+       y = "Soil Temperature (10 cm)",
+       fill = "NEE") +
+  theme_bw()
+```
+#Variable x landpos 
+
+```{r}
+#thawdepth x landpos 
+
+# Basic scatterplot with trend lines for each landscape position
+ggplot(df_NEE, aes(x = thawdepth, y = flux_value, color = landscape_position)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(title = "Observed NEE by Thaw Depth and Landscape Position",
+       x = "Thaw Depth (cm)",
+       y = "NEE (flux_value)",
+       color = "Landscape Position") +
+  theme_bw()
+
+# Faceted by landscape position (similar to interaction plot)
+ggplot(df_NEE, aes(x = thawdepth, y = flux_value)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  facet_wrap(~landscape_position) +
+  labs(title = "Observed NEE by Thaw Depth and Landscape Position",
+       x = "Thaw Depth (cm)",
+       y = "NEE (flux_value)") +
+  theme_bw()
+
+
+#VWC x land pos 
+# Basic scatterplot with trend lines for each landscape position
+ggplot(df_NEE, aes(x = VWC, y = flux_value, color = landscape_position)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(title = "Observed NEE by VWC and Landscape Position",
+       x = "VWC %",
+       y = "NEE (flux_value)",
+       color = "Landscape Position") +
+  theme_bw()
+
+# Faceted by landscape position (similar to your interaction plot)
+ggplot(df_NEE, aes(x = VWC, y = flux_value)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  facet_wrap(~landscape_position) +
+  labs(title = "Observed NEE by VWC and Landscape Position",
+       x = "VWC%",
+       y = "NEE (flux_value)") +
+  theme_bw()
+
+
+# air temp x landpos 
+# Basic scatterplot with trend lines for each landscape position
+ggplot(df_NEE, aes(x = air_temp, y = flux_value, color = landscape_position)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(title = "Observed NEE by Air T and Landscape Position",
+       x = "Air T (C)",
+       y = "NEE (flux_value)",
+       color = "Landscape Position") +
+  theme_bw()
+
+# Faceted by landscape position (similar to your interaction plot)
+ggplot(df_NEE, aes(x = air_temp, y = flux_value)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  facet_wrap(~landscape_position) +
+  labs(title = "Observed NEE by Air T and Landscape Position",
+       x = "Air T (C)",
+       y = "NEE (flux_value)") +
+  theme_bw()
+
+
+
+# soil temp x landpos 
+# Basic scatterplot with trend lines for each landscape position
+ggplot(df_NEE, aes(x = soil_temp_10_cm, y = flux_value, color = landscape_position)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(title = "Observed NEE by Soil Temp and Landscape Position",
+       x = "Soil T (C)",
+       y = "NEE (flux_value)",
+       color = "Landscape Position") +
+  theme_bw()
+
+# Faceted by landscape position (similar to your interaction plot)
+ggplot(df_NEE, aes(x = soil_temp_10_cm, y = flux_value)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  facet_wrap(~landscape_position) +
+  labs(title = "Observed NEE by Soil Temp and Landscape Position",
+       x = "Soil Temp (C)",
+       y = "NEE (flux_value)") +
+  theme_bw()
+
 
 ```
 
+#Variable x inundated 
+```{r}
+#thawdepth x inundated
+
+ggplot(df_NEE, aes(x = thawdepth, y = flux_value, color = inundated)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(title = "Observed NEE by Thaw Depth and Inundation",
+       x = "Thaw Depth (cm)",
+       y = "NEE (flux_value)",
+       color = "inundated") +
+  theme_bw()
+
+# Faceted by inundated (similar to interaction plot)
+ggplot(df_NEE, aes(x = thawdepth, y = flux_value)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  facet_wrap(~inundated) +
+  labs(title = "Observed NEE by Thaw Depth and Inundation",
+       x = "Thaw Depth (cm)",
+       y = "NEE (flux_value)") +
+  theme_bw()
+
+
+#VWC x inundated
+
+ggplot(df_NEE, aes(x = VWC, y = flux_value, color = inundated)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(title = "Observed NEE by VWC and inundated",
+       x = "VWC %",
+       y = "NEE (flux_value)",
+       color = "inundated") +
+  theme_bw()
+
+
+ggplot(df_NEE, aes(x = VWC, y = flux_value)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  facet_wrap(~inundated) +
+  labs(title = "Observed NEE by VWC and inundated",
+       x = "VWC%",
+       y = "NEE (flux_value)") +
+  theme_bw()
+
+
+# air temp x inundated 
+
+ggplot(df_NEE, aes(x = air_temp, y = flux_value, color = inundated)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(title = "Observed NEE by Air T and inundated",
+       x = "Air T (C)",
+       y = "NEE (flux_value)",
+       color = "inundated") +
+  theme_bw()
+
+
+ggplot(df_NEE, aes(x = air_temp, y = flux_value)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  facet_wrap(~inundated) +
+  labs(title = "Observed NEE by Air T and inundated",
+       x = "Air T (C)",
+       y = "NEE (flux_value)") +
+  theme_bw()
+
+
+
+# soil temp x inundated 
+
+ggplot(df_NEE, aes(x = soil_temp_10_cm, y = flux_value, color = inundated)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(title = "Observed NEE by Soil Temp and inundated",
+       x = "Soil T (C)",
+       y = "NEE (flux_value)",
+       color = "inundated") +
+  theme_bw()
+
+
+ggplot(df_NEE, aes(x = soil_temp_10_cm, y = flux_value)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  facet_wrap(~inundated) +
+  labs(title = "Observed NEE by Soil Temp and inundated",
+       x = "Soil Temp (C)",
+       y = "NEE (flux_value)") +
+  theme_bw()
+
+
+
+
+```
