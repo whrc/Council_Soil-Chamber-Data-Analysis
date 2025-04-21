@@ -251,6 +251,36 @@ landscapeinun_NEE_summary_combined <- landscapeinun_NEE_summary_rounded3%>%
 write.csv(landscapeinun_NEE_summary_combined, "C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/landscapeinun_NEEflux_summary_combined2.csv", row.names = FALSE)
 
 ```
+#Percent change between landscape positions when they're inundated vs not inundated 
+```{r}
+# Create a wider format to facilitate calculating percent change
+landscape_wide <- landscapeinun_NEE_summary_rounded3 %>%
+  pivot_wider(
+    id_cols = landscape_position,
+    names_from = inundated,
+    values_from = matches("_mean$|_sd$|_se$|_n$")
+  ) %>%
+    mutate(across(matches("_mean_N$|_mean_Y$"), as.numeric))
+  # Calculate percent change for each measurement's mean value
+ 
+  landscape_wide <- landscape_wide %>%
+  mutate(
+    flux_value_mean_pct_change = ((flux_value_mean_Y - flux_value_mean_N) / flux_value_mean_N) * 100,
+    flux_value_umol_mean_pct_change = ((flux_value_umol_mean_Y - flux_value_umol_mean_N) / flux_value_umol_mean_N) * 100,
+    thawdepth_mean_pct_change = ((thawdepth_mean_Y - thawdepth_mean_N) / thawdepth_mean_N) * 100,
+    soil_temp_10_cm_mean_pct_change = ((soil_temp_10_cm_mean_Y - soil_temp_10_cm_mean_N) / soil_temp_10_cm_mean_N) * 100,
+    air_temp_mean_pct_change = ((air_temp_mean_Y - air_temp_mean_N) / air_temp_mean_N) * 100,
+    VWC_mean_pct_change = ((VWC_mean_Y - VWC_mean_N) / VWC_mean_N) * 100
+  )
+
+# Create a cleaner summary table of the percent changes
+percent_change_summary <- landscape_wide %>%
+  select(landscape_position, ends_with("pct_change")) %>%
+  rename_with(~str_replace(., "_mean_pct_change", ""), ends_with("pct_change"))
+
+# View the result
+percent_change_summary
+```
 
 
 
@@ -1963,113 +1993,5 @@ ggplot(df_NEE, aes(x = soil_temp_10_cm, y = flux_value)) +
 ```
 
 
-#looking at variables  across landscape positions 
-```{r}
 
-ggplot(df_long, aes(x = landscape_position, y = flux_value, color = flux_type)) +
-  geom_boxplot(position = "dodge") +
-  stat_summary(fun.y = mean, geom = "point", position = "dodge", shape = 23, size = 4)+
-    #facet_wrap(~landscape_position) +
-  labs(title = "Observed NEE by Land pos",
-       x = "Landscape Position",
-       y = "NEE (flux_value)") +
-  theme_bw()
-
-ggplot(df_long, aes(x = landscape_position, y = flux_value, fill = flux_type)) +
-  geom_boxplot(position = position_dodge(0.8)) +
-  stat_summary(
-    fun = mean,
-    geom = "point",
-    shape = 23,
-    size = 4,
-    position = position_dodge(0.8)  # same dodge width as boxplot
-  ) +
-  labs(
-    title = "Observed NEE by Landscape Position",
-    x = "Landscape Position",
-    y = "NEE (flux_value)",
-    fill = "Flux Type"
-  ) +
-  theme_bw()
-
-
-
-#thawdepth
-ggplot(df_long, aes(x = landscape_position, y = thawdepth)) +
-  geom_boxplot() +
-   #facet_wrap(~landscape_position) +
-  labs(title = "Observed thawdepth by Land pos",
-       x = "Landscape Position",
-       y = "thawdepth") +
-  theme_bw() +
-  stat_summary(fun.y=mean, geom="point", shape=23, size=4)
-
-
-#VWC
-ggplot(df_long, aes(x = landscape_position, y = VWC)) +
-  geom_boxplot() +
-    labs(title = "Observed VWC by Land pos",
-       x = "Landscape Position",
-       y = "VWC") +
-  theme_bw() +
-  stat_summary(fun.y=mean, geom="point", shape=23, size=4)
-
-
-#soil temp 
-ggplot(df_long, aes(x = landscape_position, y = soil_temp_10_cm)) +
-  geom_boxplot() +
-    labs(title = "Observed Soil Temp by Land pos",
-       x = "Landscape Position",
-       y = "Soil Temp") +
-  theme_bw() +
-  stat_summary(fun.y=mean, geom="point", shape=23, size=4)
-
-
-
-#air temp 
-ggplot(df_long, aes(x = landscape_position, y = air_temp)) +
-  geom_boxplot() +
-    labs(title = "Observed Air Temp by Land pos",
-       x = "Landscape Position",
-       y = "Air Temp") +
-  theme_bw() +
-  stat_summary(fun.y=mean, geom="point", shape=23, size=4)
-
-
-
-#inundated
-ggplot(df_long, aes(x = landscape_position, y = inundated)) +
-  geom_boxplot() +
-    labs(title = "Observed Inundated by Land pos",
-       x = "Landscape Position",
-       y = "AInundated") +
-  theme_bw() +
-  stat_summary(fun.y=mean, geom="point", shape=23, size=4)
-
-library(dplyr)
-library(ggplot2)
-
-df_counts <- df_long %>%
-  distinct(plot_ID, landscape_position, inundated) %>%  # keep unique plots only
-  count(landscape_position, inundated)                  # count per group
-
-ggplot(df_counts, aes(x = landscape_position, y = n, fill = inundated)) +
-  geom_col(position = "dodge") +
-  labs(
-    title = "Unique Plot Counts by Landscape Position and Inundation",
-    x = "Landscape Position",
-    y = "Count of Unique Plots",
-    fill = "Inundated"
-  ) +
-  theme_bw()
-
-
-n_distinct(df_long$plot_ID) #35 total plots
-
-
-  #        N  Y
-  # lowland 33 14
-  # slope   22  2
-  # upland  81  6
-```
 

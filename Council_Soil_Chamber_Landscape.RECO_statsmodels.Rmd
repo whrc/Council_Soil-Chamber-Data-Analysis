@@ -252,6 +252,36 @@ write.csv(landscapeinun_RECO_summary_combined, "C:/Users/kkent/Documents/Council
 
 ```
 
+#Percent change between landscape positions when they're inundated vs not inundated 
+```{r}
+# Create a wider format to facilitate calculating percent change
+landscape_wide <- landscapeinun_RECO_summary_rounded3 %>%
+  pivot_wider(
+    id_cols = landscape_position,
+    names_from = inundated,
+    values_from = matches("_mean$|_sd$|_se$|_n$")
+  ) %>%
+    mutate(across(matches("_mean_N$|_mean_Y$"), as.numeric))
+  # Calculate percent change for each measurement's mean value
+ 
+  landscape_wide <- landscape_wide %>%
+  mutate(
+    flux_value_mean_pct_change = ((flux_value_mean_Y - flux_value_mean_N) / flux_value_mean_N) * 100,
+    flux_value_umol_mean_pct_change = ((flux_value_umol_mean_Y - flux_value_umol_mean_N) / flux_value_umol_mean_N) * 100,
+    thawdepth_mean_pct_change = ((thawdepth_mean_Y - thawdepth_mean_N) / thawdepth_mean_N) * 100,
+    soil_temp_10_cm_mean_pct_change = ((soil_temp_10_cm_mean_Y - soil_temp_10_cm_mean_N) / soil_temp_10_cm_mean_N) * 100,
+    air_temp_mean_pct_change = ((air_temp_mean_Y - air_temp_mean_N) / air_temp_mean_N) * 100,
+    VWC_mean_pct_change = ((VWC_mean_Y - VWC_mean_N) / VWC_mean_N) * 100
+  )
+
+# Create a cleaner summary table of the percent changes
+percent_change_summaryRECO <- landscape_wide %>%
+  select(landscape_position, ends_with("pct_change")) %>%
+  rename_with(~str_replace(., "_mean_pct_change", ""), ends_with("pct_change"))
+
+# View the result
+percent_change_summaryRECO
+```
 
 
 # Categorical Predictors: Variance and normality of categorical predictor variables 
