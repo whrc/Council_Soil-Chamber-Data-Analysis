@@ -254,7 +254,7 @@ write.csv(landscapeinun_GPP_summary_combined, "C:/Users/kkent/Documents/Council 
 #Percent change between landscape positions when they're inundated vs not inundated 
 ```{r}
 # Create a wider format to facilitate calculating percent change
-landscape_wide <- landscapeinun_GPP_summary_rounded3 %>%
+landscape_wideGPP<- landscapeinun_GPP_summary_rounded3 %>%
   pivot_wider(
     id_cols = landscape_position,
     names_from = inundated,
@@ -263,7 +263,7 @@ landscape_wide <- landscapeinun_GPP_summary_rounded3 %>%
     mutate(across(matches("_mean_N$|_mean_Y$"), as.numeric))
   # Calculate percent change for each measurement's mean value
  
-  landscape_wide <- landscape_wide %>%
+  landscape_wideGPP <- landscape_wideGPP %>%
   mutate(
     flux_value_mean_pct_change = ((flux_value_mean_Y - flux_value_mean_N) / flux_value_mean_N) * 100,
     flux_value_umol_mean_pct_change = ((flux_value_umol_mean_Y - flux_value_umol_mean_N) / flux_value_umol_mean_N) * 100,
@@ -274,7 +274,7 @@ landscape_wide <- landscapeinun_GPP_summary_rounded3 %>%
   )
 
 # Create a cleaner summary table of the percent changes
-percent_change_summaryGPP <- landscape_wide %>%
+percent_change_summaryGPP <- landscape_wideGPP %>%
   select(landscape_position, ends_with("pct_change")) %>%
   rename_with(~str_replace(., "_mean_pct_change", ""), ends_with("pct_change"))
 
@@ -1179,26 +1179,15 @@ chamber_GPP_corr_matrix <- df_GPP %>%
     Thaw_depth = thawdepth,
   )
 
-cor_matrix2 <- cor(chamber_GPP_corr_matrix, use = "complete.obs")
+cor_matrix2 <- cor(chamber_GPP_corr_matrix, method = "spearman", use = "complete.obs")
 
 # Convert correlation matrix to long format for plotting
 cor_long2 <- as.data.frame(as.table(cor_matrix2))
 names(cor_long2) <- c("Var1", "Var2", "Correlation")
 
-ggplot(cor_long2, aes(x = Var1, y = Var2, fill = Correlation)) +
-  geom_tile() +
-  scale_fill_gradient2(low = "red", mid = "white", high = "blue", midpoint = 0,
-                        limits = c(-1, 1)) +  # Add this to set the full range to be 1 to -1
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  theme(axis.text = element_text(size = 12, face = "bold"),
-       plot.title = element_text(size = 14, face = "bold", hjust = 0.5)) +                 
-  labs(title = "Correlation Matrix of Soil Chamber GPP Fluxes and Environmental Variables")
-   
 
 
-
-# option 2: Fewer breaks for a cleaner look, only labels corr values above 0.3 --> I like this one best 
+# only labels corr values above 0.3 
 ggplot(cor_long2, aes(x = Var1, y = Var2, fill = Correlation)) +
   geom_tile() +
   # Add correlation values only for strong correlations
