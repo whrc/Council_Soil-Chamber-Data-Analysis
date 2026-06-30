@@ -1,0 +1,2376 @@
+---
+title: "Soil_Chamber_EnviroVariable_Figs" ##time is in AK daylight time** NEE/RECO/GPP are in gC/m2/s; FCO2 and FCH4 are in gC/m2/s, flux_CO2 is in umol/m2/s; flux_CH4 is in nano mol/m2/s
+output: html_document
+date: "2025-04-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load libraries 
+```{r, include=FALSE}
+rm(list= ls())
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(openair)
+library(plotrix)
+library(signal)
+library(svMisc)
+library(zoo)
+library(stringr)
+library(plyr)
+library(viridis)
+library(lubridate)
+library(tidyverse)
+library(gridExtra)
+library(plotly)
+library(RColorBrewer)
+library(pracma)
+library(dplyr)
+library(openair)
+library(nlme)
+library(lme4)
+
+Sys.setenv(TZ='UTC')
+
+```
+
+#Load filtered and merged df of soil chamber fluxes, moisture, temp (I upload multiples but only using df_NEE_RECO2 and df_NEE_RECO2_GPP for analysis below)
+```{r}
+# #filtered for p<0.05; units umol/m2/s or nmol/m2/s
+# df_soilchambers_filtered = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_filtered_soil_chamber_fluxes_2017to2019.csv')
+# 
+# #fluxes and moisture/temp df merged; FCO2 in units g/m2/s
+# df_fulljoin = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+# *****************Use these two, above are just extra if needed for looking at*********************
+
+#used transparent and opaque chambers to identify NEE and RECO, then merged back together 
+df_NEE_RECO2 = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+#calculated GPP (NEE - Reco)
+df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_NEE_RECO2_GPP_2017to2019.csv')
+
+
+
+```
+
+
+#Re-shape df into long format 
+```{r}
+library(tidyr)
+
+#Remove the NAs 
+library(dplyr)
+
+# Reshape the dataframe to long format, choose variables of interest 
+df_wide <- df_NEE_RECO2_GPP %>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, time, date, VWC, air_temp, flux_CO2, flux_CH4, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, thawdepth) %>%
+  #remove NAs
+   filter(complete.cases( VWC, air_temp, flux_CO2, flux_CH4, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, thawdepth)) #exclude soil temp 15 cm since most of it is NA 
+
+#make NEE, GPP, RECO, and FCH4 all g/m2/s -> umol/m2/s
+df_wide$NEE_umol <- df_wide$NEE * 1/12 * 1000000
+df_wide$GPP_umol <- df_wide$GPP * 1/12 * 1000000
+df_wide$RECO_umol <- df_wide$RECO * 1/12 * 1000000
+df_wide$FCH4_umol <- df_wide$FCH4 * 1/12 * 1000000
+
+
+
+
+df_long2 <- df_NEE_RECO2_GPP %>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, time, date, VWC, air_temp, flux_CO2, flux_CH4, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, thawdepth) %>%
+  #remove NAs
+   filter(complete.cases( VWC, air_temp, flux_CO2, flux_CH4, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, thawdepth)) %>% #exclude soil temp 15 cm since most of it is NA 
+  pivot_longer(cols = c(NEE, RECO, GPP, FCH4),
+               names_to = "flux_type",
+               values_to = "flux_value")
+
+#df_long2$FCH4_umol <- df_long2$FCH4 * 1/12 * 1000000
+df_long2$flux_umol <- df_long2$flux_value * 1/12 * 1000000
+
+colnames(df_wide)
+colnames(df_long2)
+```
+
+
+#looking at variables  across landscape positions & inundation
+```{r}
+
+ggplot(df_long2, aes(x = landscape_position, y = flux_umol, color = flux_type)) +
+  geom_boxplot(position = "dodge") +
+  stat_summary(fun = mean, geom = "point", position = position_dodge(0.8), shape = 23, size = 4)+
+    facet_wrap(~inundated) +
+  labs(title = "Observed NEE by Land pos",
+       x = "Landscape Position",
+       y = "NEE (flux_value)") +
+  theme_bw()
+
+ggplot(df_long2, aes(x = landscape_position, y = flux_umol, fill = flux_type)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    shape = 23,
+    size = 4,
+    position = position_dodge(0.8)  # same dodge width as boxplot
+  ) +
+  labs(
+    title = "Observed NEE by Landscape Position",
+    x = "Landscape Position",
+    y = "Flux Value (umol/m2.s)",
+    fill = "Flux Type"
+  ) +
+  theme_bw()
+
+
+
+#thawdepth by landpos
+thaw_landpos <- ggplot(df_long, aes(x = landscape_position, y = thawdepth)) +
+  geom_boxplot() +
+  labs(title = "Observed Thaw Depth by Landscape Position",
+       x = "Landscape Position",
+       y = "Thaw Depth (cm)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+thaw_landpos
+
+#thawdepth by landpos and inundated 
+thaw_landposinun <- ggplot(df_long, aes(x = landscape_position, y = thawdepth)) +
+  geom_boxplot() +
+   facet_wrap(~inundated) +
+  labs(title = "Observed thawdepth by Landscape Position & Inundation",
+       x = "Landscape Position",
+       y = "Thaw Depth (cm)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+thaw_landposinun
+
+#VWC by landpos 
+VWC_landpos <- ggplot(df_long, aes(x = landscape_position, y = VWC)) +
+  geom_boxplot() +
+    labs(title = "Observed VWC by Landscape Position",
+       x = "Landscape Position",
+       y = "VWC (%)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+VWC_landpos
+
+#VWC by landpos and inundated
+VWC_landposinun <- ggplot(df_long, aes(x = landscape_position, y = VWC)) +
+  geom_boxplot() +
+  facet_wrap(~inundated)+
+    labs(title = "Observed VWC by Landscape Position & Inundation",
+       x = "Landscape Position",
+       y = "VWC (%)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+VWC_landposinun
+
+
+#soil temp by landpos 
+soiltemp_landpos <- ggplot(df_long, aes(x = landscape_position, y = soil_temp_10_cm)) +
+  geom_boxplot() +
+    labs(title = "Observed Soil Temp by Landscape Position",
+       x = "Landscape Position",
+       y = "Soil Temp (C)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+soiltemp_landpos
+
+
+#soiltemp by landpos and inundated 
+soiltemp_landposinun <- ggplot(df_long, aes(x = landscape_position, y = soil_temp_10_cm)) +
+  geom_boxplot() +
+    facet_wrap(~inundated)+
+    labs(title = "Observed Soil Temp by Landscape Position & Inundation",
+       x = "Landscape Position",
+       y = "Soil Temp (C)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+soiltemp_landposinun
+
+#air temp by landpos 
+airtemp_landpos <- ggplot(df_long, aes(x = landscape_position, y = air_temp)) +
+  geom_boxplot() +
+    labs(title = "Observed Air Temp by Landscape Position",
+       x = "Landscape Position",
+       y = "Air Temp (C)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+airtemp_landpos
+
+#airtemp by landpos and inundated 
+airtemp_landposinun <- ggplot(df_long, aes(x = landscape_position, y = air_temp)) +
+  geom_boxplot() +
+    facet_wrap(~inundated)+
+    labs(title = "Observed Air Temp by Landscape Position & Inundation",
+       x = "Landscape Position",
+       y = "Air Temp (C)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+airtemp_landposinun
+
+#Number of inundated plots by landpos 
+library(dplyr)
+library(ggplot2)
+
+df_counts <- df_long2 %>%
+  distinct(plot_ID, landscape_position, inundated) %>%  # keep unique plots only
+  count(landscape_position, inundated)                  # count per group
+
+ggplot(df_counts, aes(x = landscape_position, y = n, fill = inundated)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Unique Plot Counts by Landscape Position and Inundation",
+    x = "Landscape Position",
+    y = "Count of Unique Plots",
+    fill = "Inundated"
+  ) +
+  theme_bw() 
+  
+
+
+n_distinct(df_long$plot_ID) #35 total plots
+
+```
+#Arrange timeseries figures into a grid to save as single figure
+```{r}
+# Install if you don't have it
+ install.packages("patchwork")
+library(patchwork)
+
+# Arrange plots in two columns (3 rows x 2 columns) 
+combined_plot <- (title1 + title2) /
+                 (soiltemp_landpos + soiltemp_landposinun) /
+                 (airtemp_landpos + airtemp_landposinun) /
+                 (thaw_landpos + thaw_landposinun)/
+                 (VWC_landpos + VWC_landposinun) 
+                # plot_layout(guides = "collect") # Collects all legends into one
+combined_plot
+
+
+
+#remove titles from each individual plot 
+library(patchwork)
+
+combined_plot <- (
+  
+  soiltemp_landpos + labs(title = NULL) + 
+  soiltemp_landposinun + labs(title = NULL)
+) /
+(
+  airtemp_landpos + labs(title = NULL) + 
+  airtemp_landposinun + labs(title = NULL)
+) /
+(
+  thaw_landpos + labs(title = NULL) + 
+  thaw_landposinun + labs(title = NULL)
+) /
+(
+  VWC_landpos + labs(title = NULL) + 
+  VWC_landposinun + labs(title = NULL)
+) 
+
+
+combined_plot
+
+
+
+
+
+
+```
+
+#save image to maintain dimensions 
+```{r}
+ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/enviro_variables_landposinun.png",  # File name and extension
+  plot = combined_plot,        # The plot to save (default is the last plot created)
+  width = 20,                 # Width in inches
+  height = 20,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+```
+
+#Adding column titles to the combined fig 
+```{r}
+library(patchwork)
+library(ggplot2)
+
+# First, remove individual titles from each plot
+soiltemp_landpos <- soiltemp_landpos + theme(plot.title = element_blank())
+soiltemp_landposinun <- soiltemp_landposinun + theme(plot.title = element_blank())
+airtemp_landpos <- airtemp_landpos + theme(plot.title = element_blank())
+airtemp_landposinun <- airtemp_landposinun + theme(plot.title = element_blank())
+thaw_landpos <- thaw_landpos + theme(plot.title = element_blank())
+thaw_landposinun <- thaw_landposinun + theme(plot.title = element_blank())
+VWC_landpos <- VWC_landpos + theme(plot.title = element_blank())
+VWC_landposinun <- VWC_landposinun + theme(plot.title = element_blank())
+
+# Create empty plots for column titles
+title1 <- ggplot() + 
+  annotate("text", x = 0.5, y = 0.5, label = "Landscape Position", size = 5, fontface = "bold") + 
+  theme_void()
+
+title2 <- ggplot() + 
+  annotate("text", x = 0.5, y = 0.5, label = "Landscape Position and Inundation", size = 5, fontface = "bold") + 
+  theme_void()
+
+# Arrange plots with column titles
+combined_plot2 <- (title1 + title2) /
+                 (soiltemp_landpos + soiltemp_landposinun) /
+                 (airtemp_landpos + airtemp_landposinun) /
+                 (thaw_landpos + thaw_landposinun) /
+                 (VWC_landpos + VWC_landposinun) +
+                 plot_layout(heights = c(0.5, 1, 1, 1, 1)) #, widths = c(0.3, 3)) #widths not working, may adjust later 
+
+
+# # Add overall bottom title if needed
+# combined_plot2 <- combined_plot + 
+#   plot_annotation(
+#     caption = "Landscape Position",
+#     theme = theme(plot.caption = element_text(hjust = 0.5, size = 12, face = "bold"))
+#   )
+
+combined_plot2
+```
+#save image to maintain dimensions 
+```{r}
+ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/enviro_variables_landposinun2.png",  # File name and extension
+  plot = combined_plot2,        # The plot to save (default is the last plot created)
+  width = 20,                 # Width in inches
+  height = 20,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+```
+
+
+#Testing differences in enviro features among landscapes - exclude inundated slope**
+
+
+
+
+#Correlation matrix 
+
+####Create correlation matrix dataset of variables of interest - can only use continuous variables* 
+
+```{r}
+# Environmental relationships
+# Create a correlation plot between fluxes and environmental variables
+
+#can only use numeric variables, so landscape_position and inundated can't be used 
+chamber_corr_matrix <- df_long %>%
+  select(NEE, GPP, RECO, thawdepth, soil_temp_10_cm, VWC, air_temp) %>%
+  rename(
+    Soil_Temp_10cm = soil_temp_10_cm,
+    Soil_VWC = VWC,
+    Air_Temperature = air_temp,
+    Thaw_Depth = thawdepth
+  )
+
+#make sure you have complete cases, if not already 
+#cor_matrix2 <- cor(chamber_corr_matrix, use = "complete.obs")
+```
+
+
+####Pearson Corr - Flux v Environmental correlation matrix - soil chambers 
+*But this is for normally distributed data, which most of these fluxes/data are not, so see Spearman corr in code chunk below - keeping both for reference 
+```{r}
+# Calculate the correlation matrix
+chamber_corr_matrix_result <- cor(chamber_corr_matrix , use = "pairwise.complete.obs")
+print(chamber_corr_matrix_result)
+
+# Convert correlation matrix to long format for plotting
+cor_long2 <- reshape2::melt(chamber_corr_matrix_result)
+names(cor_long2) <- c("Var1", "Var2", "Correlation")
+
+
+
+ggplot(cor_long2, aes(x = Var1, y = Var2, fill = Correlation)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "red", mid = "white", high = "blue", midpoint = 0,
+                        limits = c(-1, 1)) +  # Add this to set the full range to be 1 to -1
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(axis.text = element_text(size = 12, face = "bold"),
+       plot.title = element_text(size = 14, face = "bold", hjust = 0.5)) +                 
+  labs(title = "Correlation Matrix of Soil Chamber GPP Fluxes and Environmental Variables")
+   
+
+
+
+# option 2: Fewer breaks for a cleaner look, only labels corr values above 0.2 --> I like this one best 
+#this uses linear correlation / pearson correlation *** beware if your data is not normally distributed 
+ggplot(cor_long2, aes(x = Var1, y = Var2, fill = Correlation)) +
+  geom_tile() +
+  # Add correlation values only for strong correlations
+  geom_text(data = subset(cor_long2, abs(Correlation) > 0.2),  # Only show stronger correlations
+            aes(label = sprintf("%.2f", Correlation),
+                 color = abs(Correlation) < 0.5), # Changes text color based on correlation strength
+            size = 3,
+            fontface = "bold") + #to make numbers in tiles bold
+  scale_fill_gradient2(low = "red", 
+                      mid = "white", 
+                      high = "blue", 
+                      midpoint = 0,
+                      limits = c(-1, 1),
+                      breaks = c(-1, -0.5, 0, 0.5, 1)) +
+    scale_color_manual(values = c("white", "black"), guide = "none") +  # For text visibility
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 12, face = "bold"),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5)) +                 
+  labs(title = "Correlation Matrix of Soil Chamber C Fluxes and Environmental Variables")
+
+ #saves the figure directly above
+ggsave("C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/soil_chamber_Cflux_corr_matrix.png",
+       width = 8, height = 5, dpi = 600)
+
+```
+
+
+#Correlation matrix - spearman for non-parametric 
+
+####Spearman Corr
+```{r}
+#calc correlation matrix with spearman corr
+chamber_SPcorr_result <- cor(chamber_corr_matrix, method = "spearman", use = "pairwise.complete.obs")
+print(chamber_SPcorr_result)
+
+#For p-values, use rcorr
+library(Hmisc)
+chamber_corr_with_p <- rcorr(as.matrix(chamber_corr_matrix), type = "spearman")
+print(chamber_corr_with_p)
+
+# View results
+print(chamber_SPcorr_result)
+print("P-values:")
+print(chamber_corr_with_p$P)
+
+#correlation coeffs
+#                   NEE   GPP  RECO Thaw_Depth Soil_Temp_10cm Soil_VWC Air_Temperature
+# NEE              1.00 -0.75  0.13       0.16           0.09    -0.11            0.18
+# GPP             -0.75  1.00  0.48      -0.13           0.20     0.11            0.17
+# RECO             0.13  0.48  1.00      -0.02           0.51     0.09            0.60
+# Thaw_Depth       0.16 -0.13 -0.02       1.00           0.18     0.34           -0.06
+# Soil_Temp_10cm   0.09  0.20  0.51       0.18           1.00     0.19            0.64
+# Soil_VWC        -0.11  0.11  0.09       0.34           0.19     1.00            0.11
+# Air_Temperature  0.18  0.17  0.60      -0.06           0.64     0.11            1.00
+# 
+# n= 155 
+# 
+# 
+# P values 
+#                 NEE    GPP    RECO   Thaw_Depth Soil_Temp_10cm Soil_VWC Air_Temperature
+# NEE                    0.0000 0.0967 0.0463     0.2819         0.1796   0.0257         
+# GPP             0.0000        0.0000 0.0947     0.0111         0.1713   0.0380         
+# RECO            0.0967 0.0000        0.8328     0.0000         0.2771   0.0000         
+# Thaw_Depth      0.0463 0.0947 0.8328            0.0235         0.0000   0.4957         
+# Soil_Temp_10cm  0.2819 0.0111 0.0000 0.0235                    0.0199   0.0000         
+# Soil_VWC        0.1796 0.1713 0.2771 0.0000     0.0199                  0.1590         
+# Air_Temperature 0.0257 0.0380 0.0000 0.4957     0.0000         0.1590   
+```
+
+#Plot correlation matrix - tiled figure 
+```{r}
+# Convert correlation matrix to long format for plotting
+cor_long2 <- reshape2::melt(chamber_SPcorr_result )
+names(cor_long2) <- c("Var1", "Var2", "Correlation")
+
+
+#correlation matrix using spearman's corr, for non-parametric / not normally distributed data 
+ggplot(cor_long2, aes(x = Var1, y = Var2, fill = Correlation)) +
+  geom_tile() +
+  # Add correlation values only for strong correlations
+  geom_text(data = subset(cor_long2, abs(Correlation) > 0.3),  # Only show stronger correlations
+            aes(label = sprintf("%.2f", Correlation),
+                 color = abs(Correlation) < 0.5), # Changes text color based on correlation strength
+            size = 3,
+            fontface = "bold") + #to make numbers in tiles bold
+  scale_fill_gradient2(low = "red", 
+                      mid = "white", 
+                      high = "blue", 
+                      midpoint = 0,
+                      limits = c(-1, 1),
+                      breaks = c(-1, -0.5, 0, 0.5, 1)) +
+    scale_color_manual(values = c("white", "black"), guide = "none") +  # For text visibility
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 12, face = "bold"),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5)) +                 
+  labs(title = "Correlation Matrix of Soil Chamber C Fluxes and Environmental Variables")
+
+
+```
+
+
+
+
+
+```{r}
+#double checking 
+cor.test(df_long$NEE, df_long$GPP, method="spearman")
+cor.test(chamber_corr_matrix$NEE, chamber_corr_matrix$GPP, method="spearman")
+cor.test(chamber_corr_matrix$RECO, chamber_corr_matrix$GPP, method="spearman")
+```
+
+#Adding significance codes to correlation matrix figure - coding help from Claude, keeping the redundant steps for reference 
+```{r}
+# Step 1: Calculate correlation and p-values
+library(Hmisc)
+corr_result <- rcorr(as.matrix(chamber_corr_matrix), type = "spearman")
+
+# Step 2: Extract correlation coefficients and p-values
+cor_coef <- corr_result$r
+cor_p <- corr_result$P
+
+# Step 3: Create a long format data frame for plotting
+cor_long <- reshape2::melt(cor_coef)
+names(cor_long) <- c("Var1", "Var2", "Correlation")
+
+# Step 4: Add p-values to the long format data
+p_long <- reshape2::melt(cor_p)
+cor_long$p_value <- p_long$value
+
+# Step 5: Add significance indicators
+cor_long$significance <- ""
+cor_long$significance[cor_long$p_value < 0.05] <- "*"    # p < 0.05
+cor_long$significance[cor_long$p_value < 0.01] <- "**"   # p < 0.01
+cor_long$significance[cor_long$p_value < 0.001] <- "***" # p < 0.001
+
+# Step 6: Create the correlation plot with significance indicators
+ggplot(cor_long, aes(x = Var1, y = Var2, fill = Correlation)) +
+  geom_tile() +
+  # Add correlation coefficients with significance stars
+  geom_text(aes(label = paste0(round(Correlation, 2), significance)), 
+            color = "black", size = 3) +
+  scale_fill_gradient2(low = "red", mid = "white", high = "blue", midpoint = 0,
+                      limits = c(-1, 1)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 10, face = "bold"),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5)) +
+  labs(title = "Correlation Matrix of Soil Chamber C Fluxes and Environmental Variables")
+
+
+
+
+#correlation matrix using spearman's corr, for non-parametric / not normally distributed data 
+ggplot(cor_long2, aes(x = Var1, y = Var2, fill = Correlation)) +
+  geom_tile() +
+  # Add correlation values only for strong correlations
+  geom_text(data = subset(cor_long, abs(Correlation) > 0.3),  # Only show stronger correlations
+            aes(label = paste0(sprintf("%.2f", Correlation), significance),
+                 color = abs(Correlation) < 0.5), # Changes text color based on correlation strength
+            size = 4.5,
+            fontface = "bold") + #to make numbers in tiles bold
+  scale_fill_gradient2(low = "red", 
+                      mid = "white", 
+                      high = "blue", 
+                      midpoint = 0,
+                      limits = c(-1, 1),
+                      breaks = c(-1, -0.5, 0, 0.5, 1)) +
+    scale_color_manual(values = c("white", "black"), guide = "none") +  # For text visibility
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 12, face = "bold"),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5)) +                 
+  labs(title = "Correlation Matrix of Soil Chamber C Fluxes and Environmental Variables")
+
+
+#Display corr text on tiles if it's >0.3 OR if it has a sig p 
+
+ggplot(cor_long2, aes(x = Var1, y = Var2, fill = Correlation)) +
+  geom_tile() +
+  # Add correlation values for EITHER strong correlations OR significant ones
+  geom_text(data = subset(cor_long2, abs(Correlation) > 0.3 | p_value < 0.05), #the | represents "OR" so this displays correlations above 0.3 OR significant correlations; also use "abs" to use absolute value of the corr so it's printed whether it's positive or negative*  
+            aes(label = paste0(sprintf("%.2f", Correlation), significance),
+                color = abs(Correlation) < 0.5), # Changes text color based on correlation strength
+            size = 4.5,
+            fontface = "bold") + #to make numbers in tiles bold
+  scale_fill_gradient2(low = "red", 
+                      mid = "white", 
+                      high = "blue", 
+                      midpoint = 0,
+                      limits = c(-1, 1),
+                      breaks = c(-1, -0.5, 0, 0.5, 1)) +
+    scale_color_manual(values = c("white", "black"), guide = "none") +  # For text visibility
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 12, face = "bold"),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5)) +                 
+  labs(title = "Correlation Matrix of Soil Chamber C Fluxes and Environmental Variables")
+
+ #saves the figure directly above
+ggsave("C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/soil_chamber_Cflux_corr_matrix.png",
+       width = 9, height = 5, dpi = 600)
+```
+
+```{r}
+ggplot(df_long, aes(x=thawdepth, y = NEE))+
+  geom_point()
+```
+# ** TO DO************
+```{r}
+# Create visualization functions to reuse
+plot_flux_by_position <- function(flux_var, df_long) {
+  ggplot(df_long, aes_string(x = "landscape_position", y = flux_var, fill = "landscape_position")) +
+    geom_boxplot() +
+    facet_wrap(~inundated, labeller = labeller(inundated = c("N" = "Not Inundated", "Y" = "Inundated"))) +
+    labs(title = paste(flux_var, "by Landscape Position and Inundation Status"),
+         x = "Landscape Position", y = flux_var) +
+    theme_minimal() +
+    theme(legend.position = "none")
+}
+
+# Create scatter plots with smooth lines for continuous variables
+plot_flux_by_continuous <- function(flux_var, cont_var, df_long) {
+  ggplot(df_long, aes_string(x = cont_var, y = flux_var, color = "inundated")) + #color = landpos 
+    geom_point(alpha = 0.6) +
+    geom_smooth(method = "loess", se = TRUE) +
+    facet_wrap(~landscape_position) +
+    labs(title = paste(flux_var, "vs", cont_var, "by Landscape Position"),
+         x = cont_var, y = flux_var) +
+    theme_minimal()
+}
+
+# Generate these plots for each flux
+plot_flux_by_position("GPP_umol", df_long)
+plot_flux_by_position("NEE_umol", df_long)
+plot_flux_by_position("RECO_umol", df_long)
+plot_flux_by_position("GPP_umol", df_long)
+plot_flux_by_position("FCH4_umol", df_long)
+plot_flux_by_continuous("GPP_umol", "soil_temp_10_cm", df_long)
+plot_flux_by_continuous("GPP_umol", "air_temp", df_long)
+plot_flux_by_continuous("GPP_umol", "VWC", df_long)
+plot_flux_by_continuous("GPP_umol", "thawdepth", df_long)
+plot_flux_by_continuous("NEE_umol", "soil_temp_10_cm", df_long)
+plot_flux_by_continuous("NEE_umol", "air_temp", df_long)
+plot_flux_by_continuous("NEE_umol", "VWC", df_long)
+plot_flux_by_continuous("NEE_umol", "thawdepth", df_long)
+plot_flux_by_continuous("RECO_umol", "soil_temp_10_cm", df_long)
+plot_flux_by_continuous("RECO_umol", "air_temp", df_long)
+plot_flux_by_continuous("RECO_umol", "VWC", df_long)
+plot_flux_by_continuous("RECO_umol", "thawdepth", df_long)
+plot_flux_by_continuous("FCH4_umol", "soil_temp_10_cm", df_long)
+plot_flux_by_continuous("FCH4_umol", "air_temp", df_long)
+plot_flux_by_continuous("FCH4_umol", "VWC", df_long)
+plot_flux_by_continuous("FCH4_umol", "thawdepth", df_long)
+```
+
+```{r}
+# Create scatter plots with smooth lines for continuous variables, faceted by both landscape position and inundation # loess = smooth line, lm = linear line
+plot_flux_by_position2 <- function(flux_var, df_long) {
+  ggplot(df_long, aes_string(x = "landscape_position", y = flux_var, fill = "landscape_position")) +
+    geom_boxplot() +
+  facet_wrap(~inundated, 
+               labeller = labeller(inundated = c("N" = "Not Inundated", "Y" = "Inundated"))) +
+    labs(title = paste(flux_var, "by Landscape Position and Inundation Status"),
+         x = "Landscape Position", y = flux_var) +
+    theme_minimal() +
+    theme(legend.position = "none")
+}
+
+
+plot_flux_by_continuous2 <- function(flux_var, cont_var, df_long) {
+  ggplot(df_long, aes_string(x = cont_var, y = flux_var, color = "inundated")) +
+    geom_point(alpha = 0.6) +
+    geom_smooth(method = "lm", se = TRUE) + #method = "loess"
+    facet_wrap(~landscape_position) +
+    labs(title = paste(flux_var, "vs", cont_var, "by Landscape Position and Inundation Status"),
+         x = cont_var, y = flux_var) +
+    theme_minimal()
+}
+
+plot_flux_by_position2("GPP_umol", df_long)
+plot_flux_by_position2("NEE_umol", df_long)
+plot_flux_by_position2("RECO_umol", df_long)
+plot_flux_by_position2("GPP_umol", df_long)
+plot_flux_by_position2("FCH4_umol", df_long)
+plot_flux_by_continuous2("GPP_umol", "soil_temp_10_cm", df_long)
+plot_flux_by_continuous2("GPP_umol", "air_temp", df_long)
+plot_flux_by_continuous2("GPP_umol", "VWC", df_long)
+plot_flux_by_continuous2("GPP_umol", "thawdepth", df_long)
+plot_flux_by_continuous2("NEE_umol", "soil_temp_10_cm", df_long)
+plot_flux_by_continuous2("NEE_umol", "air_temp", df_long)
+plot_flux_by_continuous2("NEE_umol", "VWC", df_long)
+plot_flux_by_continuous2("NEE_umol", "thawdepth", df_long)
+plot_flux_by_continuous2("RECO_umol", "soil_temp_10_cm", df_long)
+plot_flux_by_continuous2("RECO_umol", "air_temp", df_long)
+plot_flux_by_continuous2("RECO_umol", "VWC", df_long)
+plot_flux_by_continuous2("RECO_umol", "thawdepth", df_long)
+plot_flux_by_continuous2("FCH4_umol", "soil_temp_10_cm", df_long)
+plot_flux_by_continuous2("FCH4_umol", "air_temp", df_long)
+plot_flux_by_continuous2("FCH4_umol", "VWC", df_long)
+plot_flux_by_continuous2("FCH4_umol", "thawdepth", df_long)
+```
+
+
+
+#Looking at fluxes with interacting enviro variables 
+```{r}
+# NEE and soil + VWC
+ggplot(df_long, aes(x = soil_temp_10_cm, y = NEE_umol, color = VWC)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  theme_minimal() +
+  labs(title = "NEE Flux vs Soil Temp",
+       subtitle = "Colored by Soil Water Content",
+       x = "Temperature",
+       y = "NEE Flux")
+
+
+#This code breaks SWC into 3 even levels (low, intermediate, high) to show the change in temp relationship depending on SWC
+ggplot(df_long, aes(x = soil_temp_10_cm, y = NEE_umol)) +
+  geom_point(aes(color = VWC), alpha = 0.3) +
+  geom_smooth(aes(group = cut(VWC, breaks = 3)), method = "lm") +
+  theme_minimal() +
+  labs(title = "NEE Flux vs Temperature",
+       subtitle = "Colored by Soil Water Content",
+       x = "Temperature (°C)",
+       y = "NEE Flux",
+       color = "Soil Water Content")
+
+
+```
+#Bins - for soil temp, air temp, VWC, and thawdepth  
+```{r}
+#check ranges of variables 
+summary(df_long$VWC) #min = 0, max = 90.3
+summary(df_long$soil_temp_10_cm) #min = 0.6, max = 16.5
+summary(df_long$thawdepth) #min= 10, max = 118cm
+summary(df_long$air_temp) #min = 3.7, max = 27.10 
+
+# Create VWC bins
+df_long$VWC_bin <- cut(df_long$VWC, 
+                       breaks = c(-0.1, 1, 20, 40, 60, 95), #max VWC is 90.30
+                       labels = c("Dry (0-1%)",
+                                "Very Dry (1-20%)",
+                                "Dry (20-40%)",
+                                "Wet (40-60%)",
+                                "Very Wet (60-95%)"))
+                          #include.lowest = TRUE)
+
+
+
+# Create soil temperature bins - min is 6, max is 16.4 
+df_long$soiltemp_bin <- cut(df_long$soil_temp_10_cm, 
+                       breaks = c(0, 4, 8, 12, 16.5),  
+                       labels = c("Cold (0 to 4°C)",
+                                "Cool (4 to 8°C)",
+                                "Warm (8 to 12°C)",
+                                "Warmest (12 to 16.5°C)"))
+
+# Create soil temperature bins - min is 6, max is 16.4 
+df_long$thawdepth_bin <- cut(df_long$thawdepth, 
+                       breaks = c(0, 25, 50, 75, 120),  
+                       labels = c("Shallowest (0 to 25cm)",
+                                "Shallow (25 to 50cm)",
+                                "Deep (50 to 75cm)",
+                                "Deepest (75 to 120cm)"))
+
+
+# Create soil temperature bins - min is 6, max is 16.4 
+df_long$airtemp_bin <- cut(df_long$air_temp, 
+                       breaks = c(0, 5, 10, 15, 20, 30),  
+                       labels = c("Cold (0 to 5°C)",
+                                "Cool (5 to 10°C)",
+                                "Warm (10 to 15°C)",
+                                "Warmer (15 to 20°C)",
+                                "Hot (20 - 30°C"))
+```
+
+#to test whether a linear or quadratic or polynomial line fits data best 
+```{r}
+# For a specific bin
+bin_data <- df_long[df_long$VWC_bin == "Wet (40-60%)",]
+
+# Fit linear model
+linear_model <- lm(NEE_umol ~ soil_temp_10_cm, data = bin_data)
+
+# Fit quadratic model
+quadratic_model <- lm(NEE_umol ~ soil_temp_10_cm + I(soil_temp_10_cm^2), data = bin_data)
+
+# Compare models
+anova(linear_model, quadratic_model)
+
+# Get R-squared and p-values for the better model
+summary(quadratic_model)
+```
+
+
+#Interaction of Enviro Vars
+```{r}
+# soiltemp and VWC 
+ggplot(df_long, aes(x = soil_temp_10_cm, y = VWC, color = VWC)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~VWC_bin, scales = "free") +
+  scale_color_viridis_c() +
+  labs(title = "VWC vs Temperature by Moisture Range",
+       x = "Soil Temperature (°C)",
+       y = "VWC",
+       color = "VWC (%)") +
+  theme_minimal()
+
+#NEE x soiltemp and thawdepth
+ggplot(df_long, aes(x = soil_temp_10_cm, y = NEE_umol, color = thawdepth)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~thawdepth_bin, scales = "free") +
+  scale_color_viridis_c() +
+  labs(title = "NEE vs Temperature by Thaw Depth Range",
+       x = "Soil Temperature (°C)",
+       y = "NEE Flux",
+       color = "Thaw Depth (cm)") +
+  theme_minimal()
+
+
+#NEE x airtemp and VWC
+ggplot(df_long, aes(x = air_temp, y = NEE_umol, color = VWC)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~VWC_bin, scales = "free") +
+  scale_color_viridis_c() +
+  labs(title = "NEE vs Air Temperature by VWC Range",
+       x = "AirTemperature (°C)",
+       y = "NEE Flux",
+       color = "VWC (%)") +
+  theme_minimal()
+```
+
+
+
+
+
+
+
+#NEE x interacting enviro vars
+```{r}
+
+# NEE x soiltemp and VWC 
+ggplot(df_long, aes(x = soil_temp_10_cm, y = NEE_umol, color = VWC)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~VWC_bin, scales = "free") +
+  scale_color_viridis_c() +
+  labs(title = "NEE vs Temperature by Moisture Range",
+       x = "Soil Temperature (°C)",
+       y = "NEE Flux",
+       color = "VWC (%)") +
+  theme_minimal()
+
+#NEE x soiltemp and thawdepth
+ggplot(df_long, aes(x = soil_temp_10_cm, y = NEE_umol, color = thawdepth)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~thawdepth_bin, scales = "free") +
+  scale_color_viridis_c() +
+  labs(title = "NEE vs Temperature by Thaw Depth Range",
+       x = "Soil Temperature (°C)",
+       y = "NEE Flux",
+       color = "Thaw Depth (cm)") +
+  theme_minimal()
+
+
+#NEE x airtemp and VWC
+ggplot(df_long, aes(x = air_temp, y = NEE_umol, color = VWC)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~VWC_bin, scales = "free") +
+  scale_color_viridis_c() +
+  labs(title = "NEE vs Air Temperature by VWC Range",
+       x = "AirTemperature (°C)",
+       y = "NEE Flux",
+       color = "VWC (%)") +
+  theme_minimal()
+
+
+
+
+```
+
+
+
+
+```{r}
+# Function to test differences by landscape position
+test_by_position <- function(flux_var, df_long) {
+  # Formula creation
+  formula <- as.formula(paste(flux_var, "~ landscape_position"))
+  
+  # Check normality first
+  shapiro_test <- shapiro.test(df_long[[flux_var]])
+  
+  if (shapiro_test$p.value < 0.05) {
+    # Non-parametric test if not normal
+    kruskal_result <- kruskal.test(formula, data = df_long)
+    return(list(test = "Kruskal-Wallis", result = kruskal_result))
+  } else {
+    # ANOVA if normal
+    anova_result <- aov(formula, data = df_long)
+    return(list(test = "ANOVA", result = summary(anova_result), 
+                posthoc = TukeyHSD(anova_result)))
+  }
+}
+
+# Test interaction with inundation
+test_interaction <- function(flux_var, df_long) {
+  formula <- as.formula(paste(flux_var, "~ landscape_position * inundated"))
+  model <- aov(formula, data = df_long)
+  return(summary(model))
+}
+
+# Apply to each flux
+ gpp_position_test <- test_by_position("GPP", df)
+ gpp_interaction <- test_interaction("GPP", df)
+```
+
+
+#RLM and KW tests of continuous vars by landscape position 
+```{r}
+rlm1 <- rlm(VWC ~ landscape_position, data = df_NEE)
+Anova(rlm1, type = "II") 
+
+#soil temp x landpos p = 0.7, not sig 
+#VWC p < 0.001 *SIG* 
+#air temp p=0.8, not sig 
+#thawdepth p < 0.001 *SIG*
+
+rlm2 <- rlm(air_temp ~ landscape_position, data = df_NEE)
+Anova(rlm2, type = "II") 
+
+#soil temp x landpos p = 0.7, not sig 
+#VWC p < 0.001 *SIG* 
+#air temp p=0.8, not sig 
+#thawdepth p < 0.001 *SIG*
+
+# Test landscape position on continuous variable 
+kruskal.test(thawdepth ~ landscape_position, data = df_NEE)
+
+#soil temp x landpos p = 0.6, not sig 
+#VWC p < 0.001 *SIG* 
+#air temp p=0.8, not sig 
+#thawdepth p < 0.001 *SIG*
+
+# Test inundation on continuous variable 
+kruskal.test(air_temp ~ inundated, data = df_NEE)
+
+#soil temp x inundated p = 0.008 *SIG 
+#VWC p < 0.001 *SIG* 
+#air temp p=0.4, not sig 
+#thawdepth p < 0.001 *SIG*
+
+#suggests VWC and thawdepth vary significantly among landpos; and all variables except for air temp vary significantly by inundation --> maybe run PCA on this?
+
+
+```
+#Variance partitioning - coding help from Claude 
+```{r}
+# Venn diagram showing how much variance in your environmental variables (thaw depth, soil temperature, and VWC) is explained by landscape position and inundation. Shows the unique variance explained by each factor, plus their shared variance.
+
+
+library(vegan)
+# Prepare data
+env_vars <- df_long %>% select(thawdepth, soil_temp_10_cm, VWC)
+cat_vars <- df_long %>% select(landscape_position, inundated)
+
+# Convert categorical variables to dummy variables
+cat_dummy <- model.matrix(~ landscape_position + inundated - 1, data = cat_vars)
+
+# Variance partitioning
+vp <- varpart(env_vars, 
+              cat_dummy[,grep("landscape", colnames(cat_dummy))], 
+              cat_dummy[,grep("inundated", colnames(cat_dummy))])
+
+# Plot results
+plot(vp, digits = 2, Xnames = c("Landscape Position", "Inundation"))
+
+#Shows landpos along explains ~3% of variance in the numeric enviro factors, inundation explains about 11% of variance, and their shared variance = ~ 5%. Residuals show 80% of variance in the enviro factors is explained by something else 
+
+
+
+library(vegan)
+# Prepare data
+env_vars2 <- df_long %>% select(thawdepth, soil_temp_10_cm, VWC)
+flux_varFCH4 <- df_long %>% select(FCH4)
+flux_varNEE <- df_long %>% select(NEE)
+flux_vars <- df_long %>% select(NEE, GPP, RECO)
+cat_vars2 <- df_long %>% select(landscape_position, inundated)
+
+# Convert categorical variables to dummy variables
+cat_dummy <- model.matrix(~ landscape_position + inundated - 1, data = cat_vars2)
+
+# Variance partitioning
+vp2 <- varpart(flux_vars, 
+              cat_dummy[,grep("landscape", colnames(cat_dummy))], 
+              cat_dummy[,grep("inundated", colnames(cat_dummy))])
+
+# Plot results
+plot(vp2, digits = 2, Xnames = c("Landscape Position", "Inundation"))
+```
+
+
+
+
+#PCA - only works with continuous/numeric data 
+
+```{r}
+# Modified PCA code
+library(FactoMineR)
+
+env_vars <- select(df_long, soil_temp_10_cm, air_temp, VWC, thawdepth)
+pca_result <- PCA(env_vars, graph = FALSE)
+
+# Extract the coordinates and add back the categorical variables
+pca_df <- data.frame(pca_result$ind$coord)
+pca_df$landscape_position <- df_long$landscape_position
+pca_df$inundated <- df_long$inundated
+
+# Now create the plot
+ggplot(pca_df, aes(x = Dim.1, y = Dim.2, color = landscape_position, shape = inundated)) +
+  geom_point(size = 3) +
+  stat_ellipse() +
+  labs(title = "PCA of Environmental Variables")
+```
+
+
+#PCA for each landscape position 
+```{r}
+# Function to create PCA for a specific landscape position
+create_position_pca <- function(position_name, data) {
+  # Filter data for the specific landscape position
+  position_data <- data[data$landscape_position == position_name, ]
+  
+  # Select environmental variables
+  env_vars <- position_data[, c("soil_temp_10_cm", "air_temp", "VWC", "thawdepth")]
+  
+  # Run PCA if we have enough data
+  if(nrow(env_vars) > 3) { # Need at least 4 rows for PCA with 4 variables
+    pca_result <- prcomp(env_vars, scale. = TRUE)
+    
+    # Create plot data
+    pca_plot_data <- data.frame(
+      PC1 = pca_result$x[,1],
+      PC2 = pca_result$x[,2],
+      inundated = position_data$inundated
+    )
+    
+    # Create the plot
+    plot <- ggplot(pca_plot_data, aes(x = PC1, y = PC2, shape = inundated, color = inundated)) +
+      geom_point(size = 3) +
+      stat_ellipse() +
+      labs(title = paste("PCA of Environmental Variables -", position_name),
+           x = "PC1", y = "PC2") +
+      theme_minimal()
+    
+    # Additional info to return
+    var_explained <- summary(pca_result)$importance[2, 1:2] * 100
+    loadings <- pca_result$rotation
+    
+    return(list(plot = plot, 
+                variance_explained = var_explained, 
+                loadings = loadings,
+                pca_result = pca_result))
+  } else {
+    return(NULL)
+  }
+}
+
+# Apply to each landscape position
+lowland_pca <- create_position_pca("lowland", df_long)
+slope_pca <- create_position_pca("slope", df_long)
+upland_pca <- create_position_pca("upland", df_long)
+
+# View the plots
+lowland_pca$plot
+slope_pca$plot
+upland_pca$plot
+
+# Check which environmental variables drive variation within each position
+lowland_pca$loadings
+slope_pca$loadings
+upland_pca$loadings
+
+#LOWLAND
+#                       PC1        PC2        PC3        PC4
+# soil_temp_10_cm 0.6024493  0.2616177 -0.4371061 -0.6144504
+# air_temp        0.4259289  0.6731998  0.1778673  0.5777108
+# VWC             0.5030634 -0.3491144  0.7649874 -0.1996011
+# thawdepth       0.4500741 -0.5970572 -0.4382873  0.4988589
+
+#SLOPE
+#                        PC1        PC2        PC3        PC4
+# soil_temp_10_cm -0.6003161  0.2636395  0.6747952  0.3387716
+# air_temp        -0.3520804  0.6710585 -0.2793839 -0.5896308
+# VWC             -0.6086657 -0.2416271 -0.6448954  0.3940207
+# thawdepth       -0.3810328 -0.6494544  0.2251798 -0.6183179
+
+#UPLAND
+#                        PC1        PC2        PC3         PC4
+# soil_temp_10_cm -0.6500843 -0.3233936  0.1376162 -0.67369777
+# air_temp        -0.6969717 -0.1066950 -0.1408980  0.69497793
+# VWC              0.2081485 -0.6482817 -0.7313549 -0.03905338
+# thawdepth        0.2197611 -0.6810019  0.6529392  0.24821732
+
+# To add carbon fluxes as supplementary variables
+position_data <- df_long[df_long$landscape_position == "lowland", ]
+env_vars <- position_data[, c("soil_temp_10_cm", "air_temp", "VWC", "thawdepth")]
+flux_vars <- position_data[, c("GPP", "NEE", "RECO", "FCH4")]
+
+pca_result <- PCA(env_vars, graph = FALSE, 
+                  quanti.sup = 1:ncol(flux_vars), # Add flux variables as supplementary
+                  row.w = rep(1, nrow(env_vars)))
+```
+
+
+#PCA of continuous variables and C fluxes 
+```{r}
+# Step 1: Run PCA on your environmental variables
+env_vars <- df_long %>% 
+  select(soil_temp_10_cm, air_temp, VWC, thawdepth)
+
+# Run PCA
+pca_result <- prcomp(env_vars, scale = TRUE)
+
+# Summary of PCA
+summary(pca_result)
+
+# Look at variable contributions to principal components
+pca_loadings <- pca_result$rotation
+print(pca_loadings)
+
+# Step 2: Plot the PCA biplot
+biplot(pca_result, scale = 0)
+
+# Step 3: Enhanced visualization with ggplot2
+library(ggplot2)
+library(ggfortify)
+
+# Create PCA biplot with ggplot2
+
+#NEE
+autoplot(pca_result, data = df_long, colour = 'NEE_umol', shape = 'inundated',
+         loadings = TRUE, loadings.colour = 'blue',
+         loadings.label = TRUE, loadings.label.size = 4) +
+  theme_minimal() +
+  labs(title = "PCA of Environmental Variables",
+       subtitle = "Colored by NEE flux value")
+
+#Gpp
+autoplot(pca_result, data = df_long, colour = 'GPP_umol', shape = 'inundated',
+         loadings = TRUE, loadings.colour = 'blue',
+         loadings.label = TRUE, loadings.label.size = 4) +
+  theme_minimal() +
+  labs(title = "PCA of Environmental Variables",
+       subtitle = "Colored by GPP flux value")
+#RECO
+autoplot(pca_result, data = df_long, colour = 'RECO_umol', shape = 'inundated',
+         loadings = TRUE, loadings.colour = 'blue',
+         loadings.label = TRUE, loadings.label.size = 4) +
+  theme_minimal() +
+  labs(title = "PCA of Environmental Variables",
+       subtitle = "Colored by RECO flux value")
+
+#FCH4
+autoplot(pca_result, data = df_long, colour = 'FCH4_umol', shape = 'inundated',
+         loadings = TRUE, loadings.colour = 'blue',
+         loadings.label = TRUE, loadings.label.size = 4) +
+  theme_minimal() +
+  labs(title = "PCA of Environmental Variables",
+       subtitle = "Colored by FCH4 flux value")
+
+
+
+# Step 4: Correlation between PC scores and carbon fluxes
+df_with_pcs <- cbind(df_long, pca_result$x)
+
+# Correlation between principal components and carbon fluxes
+cor_pcs_fluxes <- cor(df_with_pcs[, c("PC1", "PC2", "PC3", "PC4")], 
+                      df_with_pcs[, c("NEE_umol", "GPP_umol", "RECO_umol", "FCH4_umol")],
+                      method = "spearman")
+print(cor_pcs_fluxes)
+
+#suggests PC1 is a thermal gradient (mainly contributed to by air temp and soil temp), and PC2 is a moisture & thaw gradient, driven by VWC and thawdepth
+#PC1 - pos values = cooler temps (due to negative relationship in loadings, so inverse relationship), neg values = warmer 
+#PC2 - pos values = wetter soils and deeper thaw depths, neg values = drier soils and shallow thaw depths 
+#Pc1 = ~42% of variance, so thermal plays a large role 
+#PC2 = ~35% of variance
+```
+
+#Piece-wise SEM
+
+#### using glm 
+```{r}
+library(piecewiseSEM)
+
+#dataset without any NAs
+df_long_cc <- df_long%>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, time, date, VWC, air_temp, FCH4_umol, NEE_umol, RECO_umol, GPP_umol, inundated, soil_temp_10_cm, thawdepth)
+
+
+any(is.na(df_long_cc))
+
+# Create dummy variables for landscape position since it can only handle numeric data 
+df_long_cc$lp_slope <- ifelse(df_long_cc$landscape_position == "slope", 1, 0)
+df_long_cc$lp_lowland <- ifelse(df_long_cc$landscape_position == "lowland", 1, 0)
+#df_long_cc$lp_upland <- ifelse(df_long_cc$landscape_position == "upland", 1, 0) #swapped out for lowland to get lowland values, using upland as reference point
+df_long_cc$inundated_numeric <- ifelse(df_long_cc$inundated == "Y", 1, 0)
+
+
+# Create individual models - make sure these are all lm or glm objects
+model_soil <- glm(soil_temp_10_cm ~ lp_slope + lp_lowland + inundated_numeric, data = df_long_cc)
+model_air <- glm(air_temp ~ lp_slope + lp_lowland + inundated_numeric, data = df_long_cc)
+model_vwc <- glm(VWC ~ lp_slope + lp_lowland + inundated_numeric, data = df_long_cc)
+model_thaw <- glm(thawdepth ~ lp_slope + lp_lowland + inundated_numeric, data = df_long_cc)
+model_nee <- glm(NEE_umol ~ soil_temp_10_cm + air_temp + VWC + thawdepth + lp_slope + lp_lowland + inundated_numeric, data = df_long_cc)
+
+# Specify the model structure correctly
+psem_model <- psem(
+  model_soil,
+  model_air,
+  model_vwc, 
+  model_thaw,
+  model_nee
+)
+
+# Get summary
+summary(psem_model)
+
+plot(psem_model)
+```
+
+#Visualizing piecewise SEM - pSEM
+
+#TO DO: include lowland landpos 
+
+```{r}
+#from glm pSEM - pSEM does not work with rlm 
+
+#have to add coefficients in by hand ** based on pSEM results 
+
+library(DiagrammeR)
+
+# Create a basic path diagram
+grViz("
+  digraph path_model {
+    rankdir=LR;
+    
+    # Nodes
+    node [shape=box]
+    lp_slope [label='Slope Position']
+    lp_upland [label='Upland Position']
+    inundated [label='Inundation']
+    
+    node [shape=ellipse]
+    soil_temp [label='Soil Temp']
+    air_temp [label='Air Temp']  
+    vwc [label='VWC']
+    thaw [label='Thaw Depth']
+    nee [label='NEE']
+    
+    # Edges with significant paths
+    lp_slope -> vwc [label='-0.18*']
+    lp_upland -> vwc [label='-0.24**'] 
+    lp_upland -> thaw [label='-0.22*']
+    inundated -> soil_temp [label='0.20*']
+    inundated -> vwc [label='0.39***']
+    inundated -> thaw [label='0.31***']
+    
+    soil_temp -> air_temp [style=dashed, label='']
+    air_temp -> nee [label='0.33**']
+    vwc -> nee [label='-0.19*']
+    vwc -> thaw [style=dashed, label=''] 
+    air_temp -> thaw [style=dashed, label='']
+    thaw -> nee [label='0.16.']
+  }
+")
+```
+#TO DO
+#Need to add lowland in....? maybe run psem with diff reference point to get the lowland effect **
+```{r}
+library(DiagrammeR)
+
+# Create a complete path diagram that includes lowland position
+grViz("
+  digraph path_model {
+    rankdir=LR;
+    
+    # Nodes
+    node [shape=box]
+    lp_lowland [label='Lowland Position']
+    lp_slope [label='Slope Position']
+    lp_upland [label='Upland Position']
+    inundated [label='Inundation']
+    
+    node [shape=ellipse]
+    soil_temp [label='Soil Temp']
+    air_temp [label='Air Temp']  
+    vwc [label='VWC']
+    thaw [label='Thaw Depth']
+    nee [label='NEE']
+    
+    # Edges for lowland (as reference category)
+    lp_lowland -> vwc [label='+', color='green']
+    lp_lowland -> thaw [label='+', color='green']
+    
+    # Edges for slope and upland (using actual coefficients)
+    lp_slope -> vwc [label='-0.18*', color='red']
+    lp_upland -> vwc [label='-0.24**', color='red'] 
+    lp_upland -> thaw [label='-0.22*', color='red']
+    
+    # Other significant paths
+    inundated -> soil_temp [label='0.20*', color='green']
+    inundated -> vwc [label='0.39***', color='green']
+    inundated -> thaw [label='0.31***', color='green']
+    
+    # Relationships between environmental variables  
+    soil_temp -> air_temp [style=dashed]
+    air_temp -> nee [label='0.33**', color='green']
+    vwc -> nee [label='-0.19*', color='red']
+    vwc -> thaw [style=dashed] 
+    air_temp -> thaw [style=dashed]
+    thaw -> nee [label='0.16', color='green']
+    
+    # Visual enhancements
+    {rank=same; lp_lowland; lp_slope; lp_upland; inundated}
+    {rank=same; soil_temp; air_temp; vwc; thaw}
+  }
+")
+```
+
+
+```{r}
+# For each component model in your piecewise SEM
+# Extract and check the residuals
+
+# Access your individual models in the psem directly
+model_list <- list(
+  soil_temp = model_soil,
+  air_temp = model_air,
+  vwc = model_vwc,
+  thaw = model_thaw,
+  nee = model_nee
+)
+
+# Then check residuals as shown above
+
+# Check residuals for each model
+par(mfrow=c(2,2))
+for (i in seq_along(model_list)) {
+  model_name <- names(model_list)[i]
+  if (is.null(model_name)) model_name <- paste("Model", i)
+  
+  resids <- residuals(model_list[[i]])
+  
+  # Histogram of residuals
+  hist(resids, main=paste("Residuals -", model_name), 
+       xlab="Residuals", freq=FALSE)
+  curve(dnorm(x, mean=mean(resids), sd=sd(resids)), add=TRUE, col="red")
+  
+  # QQ plot
+  qqnorm(resids, main=paste("QQ Plot -", model_name))
+  qqline(resids, col="red")
+}
+
+
+
+# Shapiro-Wilk test for normality on each model's residuals
+residual_tests <- list()
+for (i in seq_along(model_list)) {
+  model_name <- ifelse(is.null(names(model_list)[i]), paste("Model", i), names(model_list)[i])
+  resids <- residuals(model_list[[i]])
+  sw_test <- shapiro.test(resids)
+  residual_tests[[model_name]] <- list(
+    W = sw_test$statistic,
+    p_value = sw_test$p.value,
+    normal = sw_test$p.value > 0.05
+  )
+}
+
+# Print results
+print(residual_tests)
+
+
+
+
+
+```
+
+
+#checking linearity among flux and enviro variables 
+####NEE
+```{r}
+# Check each relationship for linearity
+# Example for NEE model
+par(mfrow=c(2,2))
+
+# Soil temp vs NEE
+plot(df_long_cc$soil_temp_10_cm, df_long_cc$NEE_umol, 
+     main="NEE vs Soil Temp", xlab="Soil Temp", ylab="NEE")
+lines(lowess(df_long_cc$soil_temp_10_cm, df_long_cc$NEE_umol), col="red")
+abline(lm(NEE_umol ~ soil_temp_10_cm, data=df_long_cc), col="blue")
+
+# Air temp vs NEE
+plot(df_long_cc$air_temp, df_long_cc$NEE_umol, 
+     main="NEE vs Air Temp", xlab="Air Temp", ylab="NEE")
+lines(lowess(df_long_cc$air_temp, df_long_cc$NEE_umol), col="red")
+abline(lm(NEE_umol ~ air_temp, data=df_long_cc), col="blue")
+
+# VWC vs NEE
+plot(df_long_cc$VWC, df_long_cc$NEE_umol, 
+     main="NEE vs VWC", xlab="VWC", ylab="NEE")
+lines(lowess(df_long_cc$VWC, df_long_cc$NEE_umol), col="red")
+abline(lm(NEE_umol ~ VWC, data=df_long_cc), col="blue")
+
+# Thaw depth vs NEE
+plot(df_long_cc$thawdepth, df_long_cc$NEE_umol, 
+     main="NEE vs Thaw Depth", xlab="Thaw Depth", ylab="NEE")
+lines(lowess(df_long_cc$thawdepth, df_long_cc$NEE_umol), col="red")
+abline(lm(NEE_umol ~ thawdepth, data=df_long_cc), col="blue")
+```
+```{r}
+# Check linearity using correlation tests
+response_vars <- c("soil_temp_10_cm", "air_temp", "VWC", "thawdepth", "NEE_umol")
+predictor_vars <- c("soil_temp_10_cm", "air_temp", "VWC", "thawdepth", 
+                   "lp_slope", "lp_upland", "inundated_numeric")
+
+# Compare linear correlation (pearson) vs rank correlation (non-parametric, spearman)
+# If they're similar, relationship is likely linear
+for (resp in response_vars) {
+  cat("\nChecking linearity for response:", resp, "\n")
+  
+  for (pred in predictor_vars) {
+    if (resp != pred) {
+      pearson_r <- cor(df_long_cc[[resp]], df_long_cc[[pred]], method="pearson", use="complete.obs")
+      spearman_r <- cor(df_long_cc[[resp]], df_long_cc[[pred]], method="spearman", use="complete.obs")
+      
+      cat(pred, "- Pearson r:", round(pearson_r, 3), 
+          "Spearman r:", round(spearman_r, 3),
+          "Diff:", round(abs(pearson_r - spearman_r), 3), "\n")
+      
+      # Large differences suggest non-linearity
+      if (abs(pearson_r - spearman_r) > 0.2) {
+        cat("  Potential non-linear relationship detected\n")
+      }
+    }
+  }
+}
+
+#Potential non-linear relationships - pearson vs spearman correlations with a difference > 0.1:
+```
+#bootstrapping and piecewise SEM - code from Claude 
+
+#### NEE using rlm
+```{r}
+library(boot)
+library(piecewiseSEM)
+library(MASS)
+
+# Simplified bootstrap function focusing just on direct and indirect effects
+boot_psem_robust <- function(data, indices) {
+  # Create bootstrap sample
+  boot_data <- data[indices, ]
+  
+  # Fit models on bootstrap sample - using robust regression here 
+  b_soil <- rlm(soil_temp_10_cm ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  b_air <- rlm(air_temp ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  b_vwc <- rlm(VWC ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  b_thaw <- rlm(thawdepth ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  b_nee <- rlm(NEE_umol ~ soil_temp_10_cm + air_temp + VWC + thawdepth + 
+             lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  
+  # Direct effects
+  direct_slope <- coef(b_nee)["lp_slope"]
+  direct_upland <- coef(b_nee)["lp_upland"]
+  direct_inundated <- coef(b_nee)["inundated_numeric"]
+  
+  # Environmental effects on NEE
+  effect_soil <- coef(b_nee)["soil_temp_10_cm"]
+  effect_air <- coef(b_nee)["air_temp"]
+  effect_vwc <- coef(b_nee)["VWC"]
+  effect_thaw <- coef(b_nee)["thawdepth"]
+  
+  # Landscape effects on environment
+  slope_soil <- coef(b_soil)["lp_slope"]
+  slope_air <- coef(b_air)["lp_slope"]
+  slope_vwc <- coef(b_vwc)["lp_slope"]
+  slope_thaw <- coef(b_thaw)["lp_slope"]
+  
+  upland_soil <- coef(b_soil)["lp_upland"]
+  upland_air <- coef(b_air)["lp_upland"]
+  upland_vwc <- coef(b_vwc)["lp_upland"]
+  upland_thaw <- coef(b_thaw)["lp_upland"]
+  
+  inundated_soil <- coef(b_soil)["inundated_numeric"]
+  inundated_air <- coef(b_air)["inundated_numeric"]
+  inundated_vwc <- coef(b_vwc)["inundated_numeric"]
+  inundated_thaw <- coef(b_thaw)["inundated_numeric"]
+  
+  # Individual indirect paths
+  slope_via_soil <- slope_soil * effect_soil
+  slope_via_air <- slope_air * effect_air
+  slope_via_vwc <- slope_vwc * effect_vwc
+  slope_via_thaw <- slope_thaw * effect_thaw
+  
+  upland_via_soil <- upland_soil * effect_soil
+  upland_via_air <- upland_air * effect_air
+  upland_via_vwc <- upland_vwc * effect_vwc
+  upland_via_thaw <- upland_thaw * effect_thaw
+  
+  inundated_via_soil <- inundated_soil * effect_soil
+  inundated_via_air <- inundated_air * effect_air
+  inundated_via_vwc <- inundated_vwc * effect_vwc
+  inundated_via_thaw <- inundated_thaw * effect_thaw
+  
+  # Total indirect effects
+  slope_indirect <- slope_via_soil + slope_via_air + slope_via_vwc + slope_via_thaw
+  upland_indirect <- upland_via_soil + upland_via_air + upland_via_vwc + upland_via_thaw
+  inundated_indirect <- inundated_via_soil + inundated_via_air + inundated_via_vwc + inundated_via_thaw
+  
+  # Total effects
+  slope_total <- direct_slope + slope_indirect
+  upland_total <- direct_upland + upland_indirect
+  inundated_total <- direct_inundated + inundated_indirect
+  
+  # Return all values as a named vector
+  return(c(
+    # Direct effects on NEE
+    direct_slope = direct_slope,
+    direct_upland = direct_upland,
+    direct_inundated = direct_inundated,
+    effect_soil = effect_soil,
+    effect_air = effect_air,
+    effect_vwc = effect_vwc,
+    effect_thaw = effect_thaw,
+    
+    # Indirect paths
+    slope_via_soil = slope_via_soil,
+    slope_via_air = slope_via_air,
+    slope_via_vwc = slope_via_vwc,
+    slope_via_thaw = slope_via_thaw,
+    upland_via_soil = upland_via_soil,
+    upland_via_air = upland_via_air,
+    upland_via_vwc = upland_via_vwc,
+    upland_via_thaw = upland_via_thaw,
+    inundated_via_soil = inundated_via_soil,
+    inundated_via_air = inundated_via_air,
+    inundated_via_vwc = inundated_via_vwc,
+    inundated_via_thaw = inundated_via_thaw,
+    
+    # Total indirect effects
+    slope_indirect = slope_indirect,
+    upland_indirect = upland_indirect,
+    inundated_indirect = inundated_indirect,
+    
+    # Total effects
+    slope_total = slope_total,
+    upland_total = upland_total,
+    inundated_total = inundated_total
+  ))
+}
+
+# Run bootstrap with this simplified function
+boot_results_robust <- boot(data = df_long_cc, 
+                    statistic = boot_psem_robust, 
+                    R = 1000)
+
+# Create summary with robust error handling
+effect_summary_robust <- data.frame(
+  Path = names(boot_results_robust$t0),
+  Estimate = boot_results_robust$t0,
+  CI_Lower = NA_real_,
+  CI_Upper = NA_real_,
+  Significant = NA,
+  stringsAsFactors = FALSE
+)
+
+# Calculate CIs with robust error handling
+for (i in 1:nrow(effect_summary_robust)) {
+  # Check for NAs in bootstrap samples
+  na_count <- sum(is.na(boot_results_robust$t[,i]))
+  if (na_count > 0) {
+    cat("Parameter", effect_summary_robust$Path[i], 
+        "has", na_count, "missing values out of", nrow(boot_results_robust$t), "\n")
+    
+    # Skip if too many NAs
+    if (na_count > 0.5 * nrow(boot_results_robust$t)) {
+      cat("Skipping CI calculation due to excessive missing values\n")
+      next
+    }
+  }
+  
+  # Try to calculate CI
+  tryCatch({
+    ci <- boot.ci(boot_results_robust, type = "perc", index = i)
+    if (!is.null(ci) && !is.null(ci$percent)) {
+      effect_summary_robust$CI_Lower[i] <- ci$percent[4]
+      effect_summary_robust$CI_Upper[i] <- ci$percent[5]
+      effect_summary_robust$Significant[i] <- (ci$percent[4] * ci$percent[5] > 0)
+    }
+  }, error = function(e) {
+    cat("Error calculating CI for parameter", effect_summary_robust$Path[i], ":", e$message, "\n")
+  })
+}
+
+# Print summary of valid results
+valid_results <- effect_summary_robust[!is.na(effect_summary_robust$Significant), ]
+valid_results$Estimate <- round(valid_results$Estimate, 4)
+valid_results$CI_Lower <- round(valid_results$CI_Lower, 4)
+valid_results$CI_Upper <- round(valid_results$CI_Upper, 4)
+
+# Sort by effect type
+direct_effects <- valid_results[grep("^direct|^effect", valid_results$Path), ]
+indirect_paths <- valid_results[grep("via", valid_results$Path), ]
+indirect_totals <- valid_results[grep("indirect$", valid_results$Path), ]
+total_effects <- valid_results[grep("total$", valid_results$Path), ]
+
+# Print results
+cat("\n--- DIRECT EFFECTS ---\n")
+print(direct_effects[order(-abs(direct_effects$Estimate)), ])
+
+cat("\n--- INDIRECT PATHWAYS ---\n")
+print(indirect_paths[order(-abs(indirect_paths$Estimate)), ])
+
+cat("\n--- TOTAL INDIRECT EFFECTS ---\n")
+print(indirect_totals)
+
+cat("\n--- TOTAL EFFECTS ---\n")
+print(total_effects)
+
+
+```
+####adding in interaction effects
+```{r}
+# Modified bootstrap function with interaction effects
+boot_psem_with_interactions <- function(data, indices) {
+  # Create bootstrap sample
+  boot_data <- data[indices, ]
+  
+  # Environmental models (can include interactions here too if needed)
+  b_soil <- rlm(soil_temp_10_cm ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  b_air <- rlm(air_temp ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  b_vwc <- rlm(VWC ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  b_thaw <- rlm(thawdepth ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  
+  # NEE model with key interactions
+  b_nee <- rlm(NEE_umol ~ soil_temp_10_cm + air_temp + VWC + thawdepth + 
+              lp_slope + lp_upland + inundated_numeric +
+              # Add important interaction terms
+              VWC:lp_slope + VWC:lp_upland +     # Effect of VWC varies by landscape position
+              thawdepth:inundated_numeric +     # Effect of thaw depth varies by inundation
+               thawdepth:air_temp +
+                thawdepth:VWC +
+                air_temp:soil_temp_10_cm,       
+              
+              data = boot_data)
+  
+  # Extract direct effects (now includes interaction terms)
+  direct_effects <- c(
+    #environmental effects on NEE 
+    "effect_soil" = coef(b_nee)["soil_temp_10_cm"],
+    "effect_air" = coef(b_nee)["air_temp"],
+    "effect vwc" = coef(b_nee)["VWC"],        # Main effect (when lp_slope=0, lp_upland=0)
+    "effect_thaw" = coef(b_nee)["thawdepth"],        # Main effect (when inundated_numeric=0)
+    #landscape effects on NEE
+    "direct_slope" = coef(b_nee)["lp_slope"],
+    "direct_upland" = coef(b_nee)["lp_upland"],
+    "direct_inundated" = coef(b_nee)["inundated_numeric"],
+    # Interaction effects on NEE
+    "vwc_x_slope" = coef(b_nee)["VWC:lp_slope"],
+    "vwc_x_upland" = coef(b_nee)["VWC:lp_upland"],
+    "thaw_x_inundated" = coef(b_nee)["thawdepth:inundated_numeric"],
+    "thaw_x_VWC" = coef(b_nee)["thawdepth:VWC"],
+    "thaw_x_airtemp" = coef(b_nee)["thawdepth:air_temp"],
+    "airtemp_x_soiltemp" = coef(b_nee)["air_temp:soil_temp_10_cm"]
+                                
+  )
+  
+  # Landscape effects on environment
+  slope_soil <- coef(b_soil)["lp_slope"]
+  slope_air <- coef(b_air)["lp_slope"]
+  slope_vwc <- coef(b_vwc)["lp_slope"]
+  slope_thaw <- coef(b_thaw)["lp_slope"]
+  
+  upland_soil <- coef(b_soil)["lp_upland"]
+  upland_air <- coef(b_air)["lp_upland"]
+  upland_vwc <- coef(b_vwc)["lp_upland"]
+  upland_thaw <- coef(b_thaw)["lp_upland"]
+  
+  inundated_soil <- coef(b_soil)["inundated_numeric"]
+  inundated_air <- coef(b_air)["inundated_numeric"]
+  inundated_vwc <- coef(b_vwc)["inundated_numeric"]
+  inundated_thaw <- coef(b_thaw)["inundated_numeric"]
+  
+  # Individual indirect paths
+  slope_via_soil <- slope_soil * effect_soil
+  slope_via_air <- slope_air * effect_air
+  slope_via_vwc <- slope_vwc * effect_vwc
+  slope_via_thaw <- slope_thaw * effect_thaw
+  
+  upland_via_soil <- upland_soil * effect_soil
+  upland_via_air <- upland_air * effect_air
+  upland_via_vwc <- upland_vwc * effect_vwc
+  upland_via_thaw <- upland_thaw * effect_thaw
+  
+  inundated_via_soil <- inundated_soil * effect_soil
+  inundated_via_air <- inundated_air * effect_air
+  inundated_via_vwc <- inundated_vwc * effect_vwc
+  inundated_via_thaw <- inundated_thaw * effect_thaw
+  
+  # Total indirect effects
+  slope_indirect <- slope_via_soil + slope_via_air + slope_via_vwc + slope_via_thaw
+  upland_indirect <- upland_via_soil + upland_via_air + upland_via_vwc + upland_via_thaw
+  inundated_indirect <- inundated_via_soil + inundated_via_air + inundated_via_vwc + inundated_via_thaw
+  
+  # Total effects
+  slope_total <- direct_slope + slope_indirect
+  upland_total <- direct_upland + upland_indirect
+  inundated_total <- direct_inundated + inundated_indirect
+  
+  # Return all values as a named vector
+  return(c( direct_effects,
+    # Direct effects on NEE
+    direct_slope = direct_slope,
+    direct_upland = direct_upland,
+    direct_inundated = direct_inundated,
+    effect_soil = effect_soil,
+    effect_air = effect_air,
+    effect_vwc = effect_vwc,
+    effect_thaw = effect_thaw,
+    
+    # Indirect paths
+    slope_via_soil = slope_via_soil,
+    slope_via_air = slope_via_air,
+    slope_via_vwc = slope_via_vwc,
+    slope_via_thaw = slope_via_thaw,
+    upland_via_soil = upland_via_soil,
+    upland_via_air = upland_via_air,
+    upland_via_vwc = upland_via_vwc,
+    upland_via_thaw = upland_via_thaw,
+    inundated_via_soil = inundated_via_soil,
+    inundated_via_air = inundated_via_air,
+    inundated_via_vwc = inundated_via_vwc,
+    inundated_via_thaw = inundated_via_thaw,
+    
+    # Total indirect effects
+    slope_indirect = slope_indirect,
+    upland_indirect = upland_indirect,
+    inundated_indirect = inundated_indirect,
+    
+    # Total effects
+    slope_total = slope_total,
+    upland_total = upland_total,
+    inundated_total = inundated_total
+  ))
+}
+
+# Run bootstrap with this simplified function
+boot_results_interact.robust <- boot(data = df_long_cc, 
+                    statistic = boot_psem_with_interactions, 
+                    R = 1000)
+
+# Create summary with robust error handling
+effect_summary_robust2 <- data.frame(
+  Path = names(boot_results_interact.robust$t0),
+  Estimate = boot_results_interact.robust$t0,
+  CI_Lower = NA_real_,
+  CI_Upper = NA_real_,
+  Significant = NA,
+  stringsAsFactors = FALSE
+)
+
+# Calculate CIs with robust error handling
+for (i in 1:nrow(effect_summary_robust2)) {
+  # Check for NAs in bootstrap samples
+  na_count <- sum(is.na(boot_results_interact.robust$t[,i]))
+  if (na_count > 0) {
+    cat("Parameter", effect_summary_robust2$Path[i], 
+        "has", na_count, "missing values out of", nrow(boot_results_interact.robust$t), "\n")
+    
+    # Skip if too many NAs
+    if (na_count > 0.5 * nrow(boot_results_interact.robust$t)) {
+      cat("Skipping CI calculation due to excessive missing values\n")
+      next
+    }
+  }
+  
+  # Try to calculate CI
+  tryCatch({
+    ci <- boot.ci(boot_results_interact.robust, type = "perc", index = i)
+    if (!is.null(ci) && !is.null(ci$percent)) {
+      effect_summary_robust2$CI_Lower[i] <- ci$percent[4]
+      effect_summary_robust2$CI_Upper[i] <- ci$percent[5]
+      effect_summary_robust2$Significant[i] <- (ci$percent[4] * ci$percent[5] > 0)
+    }
+  }, error = function(e) {
+    cat("Error calculating CI for parameter", effect_summary_robust2$Path[i], ":", e$message, "\n")
+  })
+}
+
+# Print summary of valid results
+valid_results2 <- effect_summary_robust2[!is.na(effect_summary_robust2$Significant), ]
+valid_results2$Estimate <- round(valid_results2$Estimate, 4)
+valid_results2$CI_Lower <- round(valid_results2$CI_Lower, 4)
+valid_results2$CI_Upper <- round(valid_results2$CI_Upper, 4)
+
+# Sort by effect type
+direct_effects <- valid_results2[grep("^direct|^effect", valid_results2$Path), ]
+indirect_paths <- valid_results2[grep("via", valid_results2$Path), ]
+indirect_totals <- valid_results2[grep("indirect$", valid_results2$Path), ]
+total_effects <- valid_results2[grep("total$", valid_results2$Path), ]
+
+# Print results
+cat("\n--- DIRECT EFFECTS ---\n")
+print(direct_effects[order(-abs(direct_effects$Estimate)), ])
+
+cat("\n--- INDIRECT PATHWAYS ---\n")
+print(indirect_paths[order(-abs(indirect_paths$Estimate)), ])
+
+cat("\n--- TOTAL INDIRECT EFFECTS ---\n")
+print(indirect_totals)
+
+cat("\n--- TOTAL EFFECTS ---\n")
+print(total_effects)
+  
+
+```
+```{r}
+# Modified bootstrap function with interaction effects
+boot_psem_with_interactions <- function(data, indices) {
+  # Create bootstrap sample
+  boot_data <- data[indices, ]
+  
+  # Environmental models
+  b_soil <- rlm(soil_temp_10_cm ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  b_air <- rlm(air_temp ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  b_vwc <- rlm(VWC ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  b_thaw <- rlm(thawdepth ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  
+  # NEE model with key interactions
+  b_nee <- rlm(NEE_umol ~ soil_temp_10_cm + air_temp + VWC + thawdepth + 
+              lp_slope + lp_upland + inundated_numeric +
+              # Add important interaction terms
+              VWC:lp_slope + VWC:lp_upland +     
+              thawdepth:inundated_numeric +
+              thawdepth:air_temp +
+              thawdepth:VWC +
+              air_temp:soil_temp_10_cm,
+              data = boot_data)
+  
+  # Extract environmental effects on NEE
+  env_effect_soil <- coef(b_nee)["soil_temp_10_cm"]
+  env_effect_air <- coef(b_nee)["air_temp"]
+  env_effect_vwc <- coef(b_nee)["VWC"]
+  env_effect_thaw <- coef(b_nee)["thawdepth"]
+  
+  # Direct landscape effects on NEE
+  direct_slope <- coef(b_nee)["lp_slope"]
+  direct_upland <- coef(b_nee)["lp_upland"]
+  direct_inundated <- coef(b_nee)["inundated_numeric"]
+  
+  # Extract interaction effects  
+  int_vwc_slope <- coef(b_nee)["VWC:lp_slope"]
+  int_vwc_upland <- coef(b_nee)["VWC:lp_upland"]
+  int_thaw_inundated <- coef(b_nee)["thawdepth:inundated_numeric"]
+  int_thaw_vwc <- coef(b_nee)["thawdepth:VWC"]
+  int_thaw_airtemp <- coef(b_nee)["thawdepth:air_temp"]
+  int_airtemp_soiltemp <- coef(b_nee)["air_temp:soil_temp_10_cm"]
+  
+  # Combine all direct effects
+  direct_effects <- c(
+    "effect_soil" = env_effect_soil,
+    "effect_air" = env_effect_air,
+    "effect_vwc" = env_effect_vwc,
+    "effect_thaw" = env_effect_thaw,
+    "direct_slope" = direct_slope,
+    "direct_upland" = direct_upland, 
+    "direct_inundated" = direct_inundated,
+    "int_vwc_slope" = int_vwc_slope,
+    "int_vwc_upland" = int_vwc_upland,
+    "int_thaw_inundated" = int_thaw_inundated,
+    "int_thaw_vwc" = int_thaw_vwc,
+    "int_thaw_airtemp" = int_thaw_airtemp,
+    "int_airtemp_soiltemp" = int_airtemp_soiltemp
+  )
+  
+  # Landscape effects on environment
+  slope_soil <- coef(b_soil)["lp_slope"]
+  slope_air <- coef(b_air)["lp_slope"]
+  slope_vwc <- coef(b_vwc)["lp_slope"]
+  slope_thaw <- coef(b_thaw)["lp_slope"]
+  
+  upland_soil <- coef(b_soil)["lp_upland"]
+  upland_air <- coef(b_air)["lp_upland"]
+  upland_vwc <- coef(b_vwc)["lp_upland"]
+  upland_thaw <- coef(b_thaw)["lp_upland"]
+  
+  inundated_soil <- coef(b_soil)["inundated_numeric"]
+  inundated_air <- coef(b_air)["inundated_numeric"]
+  inundated_vwc <- coef(b_vwc)["inundated_numeric"]
+  inundated_thaw <- coef(b_thaw)["inundated_numeric"]
+  
+  # Individual indirect paths - now using the correctly named variables
+  slope_via_soil <- slope_soil * env_effect_soil
+  slope_via_air <- slope_air * env_effect_air
+  slope_via_vwc <- slope_vwc * env_effect_vwc
+  slope_via_thaw <- slope_thaw * env_effect_thaw
+  
+  upland_via_soil <- upland_soil * env_effect_soil
+  upland_via_air <- upland_air * env_effect_air
+  upland_via_vwc <- upland_vwc * env_effect_vwc
+  upland_via_thaw <- upland_thaw * env_effect_thaw
+  
+  inundated_via_soil <- inundated_soil * env_effect_soil
+  inundated_via_air <- inundated_air * env_effect_air
+  inundated_via_vwc <- inundated_vwc * env_effect_vwc
+  inundated_via_thaw <- inundated_thaw * env_effect_thaw
+  
+  # Total indirect effects
+  slope_indirect <- slope_via_soil + slope_via_air + slope_via_vwc + slope_via_thaw
+  upland_indirect <- upland_via_soil + upland_via_air + upland_via_vwc + upland_via_thaw
+  inundated_indirect <- inundated_via_soil + inundated_via_air + inundated_via_vwc + inundated_via_thaw
+  
+  # Total effects
+  slope_total <- direct_slope + slope_indirect
+  upland_total <- direct_upland + upland_indirect
+  inundated_total <- direct_inundated + inundated_indirect
+  
+  # Create a vector of all effects to return
+  all_effects <- c(
+    # Direct and interaction effects
+    direct_effects,
+    
+    # Landscape-to-environment effects
+    "slope_soil" = slope_soil,
+    "slope_air" = slope_air,
+    "slope_vwc" = slope_vwc,
+    "slope_thaw" = slope_thaw,
+    "upland_soil" = upland_soil,
+    "upland_air" = upland_air,
+    "upland_vwc" = upland_vwc,
+    "upland_thaw" = upland_thaw,
+    "inundated_soil" = inundated_soil,
+    "inundated_air" = inundated_air,
+    "inundated_vwc" = inundated_vwc,
+    "inundated_thaw" = inundated_thaw,
+    
+    # Indirect pathways
+    "slope_via_soil" = slope_via_soil,
+    "slope_via_air" = slope_via_air,
+    "slope_via_vwc" = slope_via_vwc,
+    "slope_via_thaw" = slope_via_thaw,
+    "upland_via_soil" = upland_via_soil,
+    "upland_via_air" = upland_via_air,
+    "upland_via_vwc" = upland_via_vwc,
+    "upland_via_thaw" = upland_via_thaw,
+    "inundated_via_soil" = inundated_via_soil,
+    "inundated_via_air" = inundated_via_air,
+    "inundated_via_vwc" = inundated_via_vwc,
+    "inundated_via_thaw" = inundated_via_thaw,
+    
+    # Total indirect effects
+    "slope_indirect" = slope_indirect,
+    "upland_indirect" = upland_indirect,
+    "inundated_indirect" = inundated_indirect,
+    
+    # Total effects
+    "slope_total" = slope_total,
+    "upland_total" = upland_total,
+    "inundated_total" = inundated_total
+  )
+  
+  return(all_effects)
+}
+
+# Run bootstrap with this simplified function
+boot_results_interact.robust <- boot(data = df_long_cc, 
+                    statistic = boot_psem_with_interactions, 
+                    R = 1000)
+
+# Create summary with robust error handling
+effect_summary_robust2 <- data.frame(
+  Path = names(boot_results_interact.robust$t0),
+  Estimate = boot_results_interact.robust$t0,
+  CI_Lower = NA_real_,
+  CI_Upper = NA_real_,
+  Significant = NA,
+  stringsAsFactors = FALSE
+)
+
+# Calculate CIs with robust error handling
+for (i in 1:nrow(effect_summary_robust2)) {
+  # Check for NAs in bootstrap samples
+  na_count <- sum(is.na(boot_results_interact.robust$t[,i]))
+  if (na_count > 0) {
+    cat("Parameter", effect_summary_robust2$Path[i], 
+        "has", na_count, "missing values out of", nrow(boot_results_interact.robust$t), "\n")
+    
+    # Skip if too many NAs
+    if (na_count > 0.5 * nrow(boot_results_interact.robust$t)) {
+      cat("Skipping CI calculation due to excessive missing values\n")
+      next
+    }
+  }
+  
+  # Try to calculate CI
+  tryCatch({
+    ci <- boot.ci(boot_results_interact.robust, type = "perc", index = i)
+    if (!is.null(ci) && !is.null(ci$percent)) {
+      effect_summary_robust2$CI_Lower[i] <- ci$percent[4]
+      effect_summary_robust2$CI_Upper[i] <- ci$percent[5]
+      effect_summary_robust2$Significant[i] <- (ci$percent[4] * ci$percent[5] > 0)
+    }
+  }, error = function(e) {
+    cat("Error calculating CI for parameter", effect_summary_robust2$Path[i], ":", e$message, "\n")
+  })
+}
+
+# Print summary of valid results
+valid_results2 <- effect_summary_robust2[!is.na(effect_summary_robust2$Significant), ]
+valid_results2$Estimate <- round(valid_results2$Estimate, 4)
+valid_results2$CI_Lower <- round(valid_results2$CI_Lower, 4)
+valid_results2$CI_Upper <- round(valid_results2$CI_Upper, 4)
+
+# Sort by effect type
+direct_effects <- valid_results2[grep("^direct|^effect", valid_results2$Path), ]
+indirect_paths <- valid_results2[grep("via", valid_results2$Path), ]
+indirect_totals <- valid_results2[grep("indirect$", valid_results2$Path), ]
+total_effects <- valid_results2[grep("total$", valid_results2$Path), ]
+
+# Print results
+cat("\n--- DIRECT EFFECTS ---\n")
+print(direct_effects[order(-abs(direct_effects$Estimate)), ])
+
+cat("\n--- INDIRECT PATHWAYS ---\n")
+print(indirect_paths[order(-abs(indirect_paths$Estimate)), ])
+
+cat("\n--- TOTAL INDIRECT EFFECTS ---\n")
+print(indirect_totals)
+
+cat("\n--- TOTAL EFFECTS ---\n")
+print(total_effects)
+
+```
+#TO DO: ASK claude about these errors *** for robust bootstrap with interactions 
+
+
+```{r}
+# Fit NEE model using different approaches
+lm_model <- lm(NEE_umol ~ soil_temp_10_cm + air_temp + VWC + thawdepth + 
+               lp_slope + lp_upland + inundated_numeric, data = df_long_cc)
+
+rlm_model <- rlm(NEE_umol ~ soil_temp_10_cm + air_temp + VWC + thawdepth + 
+                lp_slope + lp_upland + inundated_numeric, data = df_long_cc)
+
+glm_model <- glm(NEE_umol ~ soil_temp_10_cm + air_temp + VWC + thawdepth + 
+                lp_slope + lp_upland + inundated_numeric, 
+                family = gaussian(link = "identity"), data = df_long_cc)
+
+
+
+# Compare residuals
+par(mfrow=c(2,3))
+hist(residuals(lm_model), main="LM Residuals")
+hist(residuals(rlm_model), main="RLM Residuals")
+hist(residuals(glm_model), main="GLM Residuals")
+
+
+# Compare QQ plots
+qqnorm(residuals(lm_model), main="LM QQ Plot"); qqline(residuals(lm_model))
+qqnorm(residuals(rlm_model), main="RLM QQ Plot"); qqline(residuals(rlm_model))
+qqnorm(residuals(glm_model), main="GLM QQ Plot"); qqline(residuals(glm_model))
+
+#all essentially the same with a strong positive skew, going with robust as it's best able to handle non-normal distributions
+
+```
+
+
+####using glm 
+```{r}
+library(boot)
+library(piecewiseSEM)
+
+# Simplified bootstrap function focusing just on direct and indirect effects
+boot_psem_robust <- function(data, indices) {
+  # Create bootstrap sample
+  boot_data <- data[indices, ]
+  
+  # Fit models on bootstrap sample - using robust regression here 
+  b_soil <- glm(soil_temp_10_cm ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  b_air <- glm(air_temp ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  b_vwc <- glm(VWC ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  b_thaw <- glm(thawdepth ~ lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  b_nee <- glm(NEE_umol ~ soil_temp_10_cm + air_temp + VWC + thawdepth + 
+             lp_slope + lp_upland + inundated_numeric, data = boot_data)
+  
+  # Direct effects
+  direct_slope <- coef(b_nee)["lp_slope"]
+  direct_upland <- coef(b_nee)["lp_upland"]
+  direct_inundated <- coef(b_nee)["inundated_numeric"]
+  
+  # Environmental effects on NEE
+  effect_soil <- coef(b_nee)["soil_temp_10_cm"]
+  effect_air <- coef(b_nee)["air_temp"]
+  effect_vwc <- coef(b_nee)["VWC"]
+  effect_thaw <- coef(b_nee)["thawdepth"]
+  
+  # Landscape effects on environment
+  slope_soil <- coef(b_soil)["lp_slope"]
+  slope_air <- coef(b_air)["lp_slope"]
+  slope_vwc <- coef(b_vwc)["lp_slope"]
+  slope_thaw <- coef(b_thaw)["lp_slope"]
+  
+  upland_soil <- coef(b_soil)["lp_upland"]
+  upland_air <- coef(b_air)["lp_upland"]
+  upland_vwc <- coef(b_vwc)["lp_upland"]
+  upland_thaw <- coef(b_thaw)["lp_upland"]
+  
+  inundated_soil <- coef(b_soil)["inundated_numeric"]
+  inundated_air <- coef(b_air)["inundated_numeric"]
+  inundated_vwc <- coef(b_vwc)["inundated_numeric"]
+  inundated_thaw <- coef(b_thaw)["inundated_numeric"]
+  
+  # Individual indirect paths
+  slope_via_soil <- slope_soil * effect_soil
+  slope_via_air <- slope_air * effect_air
+  slope_via_vwc <- slope_vwc * effect_vwc
+  slope_via_thaw <- slope_thaw * effect_thaw
+  
+  upland_via_soil <- upland_soil * effect_soil
+  upland_via_air <- upland_air * effect_air
+  upland_via_vwc <- upland_vwc * effect_vwc
+  upland_via_thaw <- upland_thaw * effect_thaw
+  
+  inundated_via_soil <- inundated_soil * effect_soil
+  inundated_via_air <- inundated_air * effect_air
+  inundated_via_vwc <- inundated_vwc * effect_vwc
+  inundated_via_thaw <- inundated_thaw * effect_thaw
+  
+  # Total indirect effects
+  slope_indirect <- slope_via_soil + slope_via_air + slope_via_vwc + slope_via_thaw
+  upland_indirect <- upland_via_soil + upland_via_air + upland_via_vwc + upland_via_thaw
+  inundated_indirect <- inundated_via_soil + inundated_via_air + inundated_via_vwc + inundated_via_thaw
+  
+  # Total effects
+  slope_total <- direct_slope + slope_indirect
+  upland_total <- direct_upland + upland_indirect
+  inundated_total <- direct_inundated + inundated_indirect
+  
+  # Return all values as a named vector
+  return(c(
+    # Direct effects on NEE
+    direct_slope = direct_slope,
+    direct_upland = direct_upland,
+    direct_inundated = direct_inundated,
+    effect_soil = effect_soil,
+    effect_air = effect_air,
+    effect_vwc = effect_vwc,
+    effect_thaw = effect_thaw,
+    
+    # Indirect paths
+    slope_via_soil = slope_via_soil,
+    slope_via_air = slope_via_air,
+    slope_via_vwc = slope_via_vwc,
+    slope_via_thaw = slope_via_thaw,
+    upland_via_soil = upland_via_soil,
+    upland_via_air = upland_via_air,
+    upland_via_vwc = upland_via_vwc,
+    upland_via_thaw = upland_via_thaw,
+    inundated_via_soil = inundated_via_soil,
+    inundated_via_air = inundated_via_air,
+    inundated_via_vwc = inundated_via_vwc,
+    inundated_via_thaw = inundated_via_thaw,
+    
+    # Total indirect effects
+    slope_indirect = slope_indirect,
+    upland_indirect = upland_indirect,
+    inundated_indirect = inundated_indirect,
+    
+    # Total effects
+    slope_total = slope_total,
+    upland_total = upland_total,
+    inundated_total = inundated_total
+  ))
+}
+
+# Run bootstrap with this simplified function
+boot_results_robust <- boot(data = df_long_cc, 
+                    statistic = boot_psem_robust, 
+                    R = 1000)
+
+# Create summary with robust error handling
+effect_summary_robust <- data.frame(
+  Path = names(boot_results_robust$t0),
+  Estimate = boot_results_robust$t0,
+  CI_Lower = NA_real_,
+  CI_Upper = NA_real_,
+  Significant = NA,
+  stringsAsFactors = FALSE
+)
+
+# Calculate CIs with robust error handling
+for (i in 1:nrow(effect_summary_robust)) {
+  # Check for NAs in bootstrap samples
+  na_count <- sum(is.na(boot_results_robust$t[,i]))
+  if (na_count > 0) {
+    cat("Parameter", effect_summary_robust$Path[i], 
+        "has", na_count, "missing values out of", nrow(boot_results_robust$t), "\n")
+    
+    # Skip if too many NAs
+    if (na_count > 0.5 * nrow(boot_results_robust$t)) {
+      cat("Skipping CI calculation due to excessive missing values\n")
+      next
+    }
+  }
+  
+  # Try to calculate CI
+  tryCatch({
+    ci <- boot.ci(boot_results_robust, type = "perc", index = i)
+    if (!is.null(ci) && !is.null(ci$percent)) {
+      effect_summary_robust$CI_Lower[i] <- ci$percent[4]
+      effect_summary_robust$CI_Upper[i] <- ci$percent[5]
+      effect_summary_robust$Significant[i] <- (ci$percent[4] * ci$percent[5] > 0)
+    }
+  }, error = function(e) {
+    cat("Error calculating CI for parameter", effect_summary_robust$Path[i], ":", e$message, "\n")
+  })
+}
+
+# Print summary of valid results
+valid_results <- effect_summary_robust[!is.na(effect_summary_robust$Significant), ]
+valid_resultst$Estimate <- round(valid_results$Estimate, 4)
+valid_results$CI_Lower <- round(valid_results$CI_Lower, 4)
+valid_results$CI_Upper <- round(valid_results$CI_Upper, 4)
+
+# Sort by effect type
+direct_effects <- valid_results[grep("^direct|^effect", valid_results$Path), ]
+indirect_paths <- valid_results[grep("via", valid_results$Path), ]
+indirect_totals <- valid_results[grep("indirect$", valid_results$Path), ]
+total_effects <- valid_results[grep("total$", valid_results$Path), ]
+
+# Print results
+cat("\n--- DIRECT EFFECTS ---\n")
+print(direct_effects[order(-abs(direct_effects$Estimate)), ])
+
+cat("\n--- INDIRECT PATHWAYS ---\n")
+print(indirect_paths[order(-abs(indirect_paths$Estimate)), ])
+
+cat("\n--- TOTAL INDIRECT EFFECTS ---\n")
+print(indirect_totals)
+
+cat("\n--- TOTAL EFFECTS ---\n")
+print(total_effects)
+
+```
+#### p-values from bootstrapping
+```{r}
+# Calculate p-values from bootstrap distribution
+effect_summary$p_value <- NA
+
+for (i in 1:nrow(effect_summary)) {
+  if (!is.na(effect_summary$CI_Lower[i])) {
+    # Count how many bootstrap samples had opposite sign from estimate
+    opposite_sign <- sum((boot_results$t[,i] > 0) != (effect_summary$Estimate[i] > 0), na.rm = TRUE)
+    total_samples <- sum(!is.na(boot_results$t[,i]))
+    
+    # Calculate p-value (two-tailed)
+    effect_summary$p_value[i] <- 2 * (opposite_sign / total_samples)
+    
+    # Cap at 1 (can't have p > 1)
+    effect_summary$p_value[i] <- min(effect_summary$p_value[i], 1)
+  }
+}
+
+# Add significance stars
+effect_summary$stars <- ""
+effect_summary$stars[effect_summary$p_value < 0.05] <- "*"
+effect_summary$stars[effect_summary$p_value < 0.01] <- "**"
+effect_summary$stars[effect_summary$p_value < 0.001] <- "***"
+
+# Print updated results with p-values
+valid_results <- effect_summary[!is.na(effect_summary$p_value), ]
+valid_results$p_value <- round(valid_results$p_value, 4)
+print(valid_results[, c("Path", "Estimate", "CI_Lower", "CI_Upper", "p_value", "stars")])
+```
+
+
+
+#linear relationships 
+
+####RECO vs temp relationship -lm with R2 and p 
+```{r}
+
+library(ggplot2)
+
+# Create the plot with points and a linear regression line
+soil_RECO <- ggplot(df_RECO, aes(x = soil_temp_10_cm, y = flux_value)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(title = "Relationship between RECO and Soil Temperature",
+       x = "Soil Temperature at 10 cm",
+       y = "RECO (Carbon Flux)")
+
+# Print the plot
+print(soil_RECO)
+
+
+
+# Fit a linear model
+model <- lm(flux_value ~ soil_temp_10_cm, data = df_RECO, na.action=na.exclude)
+
+# Calculate R² value
+r_squared <- summary(model)$r.squared
+cat("R² value:", r_squared, "\n")
+
+# Test for significance
+summary(model)
+
+
+#Add R2 to the figure 
+# Fit a linear model
+model <- lm(flux_value ~ soil_temp_10_cm, data = df_RECO)
+
+# Calculate R² value
+r_squared <- summary(model)$r.squared
+
+# Create the plot with points, a linear regression line, and R² annotation
+soil_RECO2 <- ggplot(df_RECO, aes(x = soil_temp_10_cm, y = flux_value)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  annotate("text", x = Inf, y = Inf, label = paste("R² =", round(r_squared, 2)),
+           hjust = 1.1, vjust = 1.1, size = 5, color = "red") +
+  labs(title = "Relationship between RECO and Soil Temperature",
+       x = "Soil Temperature at 10 cm",
+       y = "RECO (Carbon Flux)")+
+  theme_minimal()
+
+# Print the plot
+print(soil_RECO2)
+
+```
+
+
+#TO DO: how enviro variables change by landpos, and from year to year?
+
+
+
+
+
+
+
