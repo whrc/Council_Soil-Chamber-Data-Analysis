@@ -1,0 +1,2515 @@
+---
+title: "Soil_Chamber_Enviro_Figs_Stats"
+output: html_document
+date: "2025-10-26"
+---
+#"Soil_Chamber_EnviroVariable_Figs" ##time is in AK daylight time** NEE/RECO/GPP are in gC/m2/s; FCO2 and FCH4 are in gC/m2/s, flux_CO2 is in umol/m2/s; flux_CH4 is in nano mol/m2/s
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load libraries 
+```{r, include=FALSE}
+rm(list= ls())
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(openair)
+library(plotrix)
+library(signal)
+library(svMisc)
+library(zoo)
+library(stringr)
+library(plyr)
+library(viridis)
+library(lubridate)
+library(tidyverse)
+library(gridExtra)
+library(plotly)
+library(RColorBrewer)
+library(pracma)
+library(dplyr)
+library(openair)
+library(nlme)
+library(lme4)
+
+Sys.setenv(TZ='UTC')
+
+```
+
+#Load filtered and merged df of soil chamber fluxes, moisture, temp (I upload multiples but only using df_NEE_RECO2 and df_NEE_RECO2_GPP for analysis below)
+```{r}
+# #filtered for p<0.05; units umol/m2/s or nmol/m2/s
+# df_soilchambers_filtered = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_filtered_soil_chamber_fluxes_2017to2019.csv')
+# 
+# #fluxes and moisture/temp df merged; FCO2 in units g/m2/s
+# df_fulljoin = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+# *****************Use these two, above are just extra if needed for looking at*********************
+
+#used transparent and opaque chambers to identify NEE and RECO, then merged back together 
+df_NEE_RECO2 = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+#calculated GPP (NEE - Reco)
+df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_NEE_RECO2_GPP_2017to2019.csv')
+
+
+
+```
+
+
+#Re-shape df into long format 
+```{r}
+library(tidyr)
+
+#Remove the NAs 
+library(dplyr)
+
+# Reshape the dataframe to long format, choose variables of interest 
+df_wide <- df_NEE_RECO2_GPP %>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, time, date, VWC, air_temp, flux_CO2, flux_CH4, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, thawdepth) %>%
+  #remove NAs
+   filter(complete.cases( VWC, air_temp, flux_CO2, flux_CH4, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, thawdepth)) #exclude soil temp 15 cm since most of it is NA 
+
+#make NEE, GPP, RECO, and FCH4 all g/m2/s -> umol/m2/s
+df_wide$NEE_umol <- df_wide$NEE * 1/12 * 1000000
+df_wide$GPP_umol <- df_wide$GPP * 1/12 * 1000000
+df_wide$RECO_umol <- df_wide$RECO * 1/12 * 1000000
+df_wide$FCH4_umol <- df_wide$FCH4 * 1/12 * 1000000
+
+#Filter out inundated slope with only n=2
+# Filter out combinations with n < 5
+# This removes slope-inundated (slope-Y)
+df_wide_filtered <- df_wide %>%
+  group_by(landscape_position, inundated) %>%
+ filter(flux_CH4 <= 400) %>% #filter out the outlier of flux CH4 = 600 nmol, occurs only one time in 2019 and rest are < 400 
+  filter(n() >= 5) %>%
+  ungroup()
+
+
+df_long2 <- df_wide_filtered  %>%
+  # select(plot_ID, plot_type, landscape_position, measurement_date, time, date, VWC, air_temp, flux_CO2, flux_CH4, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, thawdepth) %>%
+  #remove NAs
+   filter(complete.cases( VWC, air_temp, flux_CO2, flux_CH4, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, thawdepth)) %>% #exclude soil temp 15 cm since most of it is NA 
+  pivot_longer(cols = c(NEE, RECO, GPP, FCH4),
+               names_to = "flux_type",
+               values_to = "flux_value")
+
+#df_long2$FCH4_umol <- df_long2$FCH4 * 1/12 * 1000000
+df_long2$flux_umol <- df_long2$flux_value * 1/12 * 1000000
+
+colnames(df_wide)
+colnames(df_long2)
+```
+
+
+#looking at variables  across landscape positions & inundation
+```{r}
+
+ggplot(df_long2, aes(x = landscape_position, y = flux_umol, color = flux_type)) +
+  geom_boxplot(position = "dodge") +
+  stat_summary(fun = mean, geom = "point", position = position_dodge(0.8), shape = 23, size = 4)+
+    facet_wrap(~inundated) +
+  labs(title = "Observed NEE by Land pos",
+       x = "Landscape Position",
+       y = "NEE (flux_value)") +
+  theme_bw()
+
+ggplot(df_long2, aes(x = landscape_position, y = flux_umol, fill = flux_type)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    shape = 23,
+    size = 4,
+    position = position_dodge(0.8)  # same dodge width as boxplot
+  ) +
+  labs(
+    title = "Observed NEE by Landscape Position",
+    x = "Landscape Position",
+    y = "Flux Value (umol/m2.s)",
+    fill = "Flux Type"
+  ) +
+  theme_bw()
+
+
+
+#thawdepth by landpos
+thaw_landpos <- ggplot(df_long2, aes(x = landscape_position, y = thawdepth)) +
+  geom_boxplot() +
+  labs(title = "Observed Thaw Depth by Landscape Position",
+       x = "Landscape Position",
+       y = "Thaw Depth (cm)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+thaw_landpos
+
+#thawdepth by landpos and inundated 
+thaw_landposinun <- ggplot(df_long2, aes(x = landscape_position, y = thawdepth)) +
+  geom_boxplot() +
+   facet_wrap(~inundated) +
+  labs(title = "Observed thawdepth by Landscape Position & Inundation",
+       x = "Landscape Position",
+       y = "Thaw Depth (cm)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+thaw_landposinun
+
+#VWC by landpos 
+VWC_landpos <- ggplot(df_long2, aes(x = landscape_position, y = VWC)) +
+  geom_boxplot() +
+    labs(title = "Observed VWC by Landscape Position",
+       x = "Landscape Position",
+       y = "VWC (%)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+VWC_landpos
+
+#VWC by landpos and inundated
+VWC_landposinun <- ggplot(df_long2, aes(x = landscape_position, y = VWC)) +
+  geom_boxplot() +
+  facet_wrap(~inundated)+
+    labs(title = "Observed VWC by Landscape Position & Inundation",
+       x = "Landscape Position",
+       y = "VWC (%)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+VWC_landposinun
+
+
+#soil temp by landpos 
+soiltemp_landpos <- ggplot(df_long2, aes(x = landscape_position, y = soil_temp_10_cm)) +
+  geom_boxplot() +
+    labs(title = "Observed Soil Temp by Landscape Position",
+       x = "Landscape Position",
+       y = "Soil Temp (C)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+soiltemp_landpos
+
+
+#soiltemp by landpos and inundated 
+soiltemp_landposinun <- ggplot(df_long2, aes(x = landscape_position, y = soil_temp_10_cm)) +
+  geom_boxplot() +
+    facet_wrap(~inundated)+
+    labs(title = "Observed Soil Temp by Landscape Position & Inundation",
+       x = "Landscape Position",
+       y = "Soil Temp (C)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+soiltemp_landposinun
+
+#air temp by landpos 
+airtemp_landpos <- ggplot(df_long2, aes(x = landscape_position, y = air_temp)) +
+  geom_boxplot() +
+    labs(title = "Observed Air Temp by Landscape Position",
+       x = "Landscape Position",
+       y = "Air Temp (C)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+airtemp_landpos
+
+#airtemp by landpos and inundated 
+airtemp_landposinun <- ggplot(df_long2, aes(x = landscape_position, y = air_temp)) +
+  geom_boxplot() +
+    facet_wrap(~inundated)+
+    labs(title = "Observed Air Temp by Landscape Position & Inundation",
+       x = "Landscape Position",
+       y = "Air Temp (C)") +
+  theme_bw() +
+  stat_summary(fun=mean, geom="point", shape=23, size=4)
+
+airtemp_landposinun
+
+#Number of inundated plots by landpos 
+library(dplyr)
+library(ggplot2)
+
+df_counts <- df_long2 %>%
+  distinct(plot_ID, landscape_position, inundated) %>%  # keep unique plots only
+  count(landscape_position, inundated)                  # count per group
+
+ggplot(df_counts, aes(x = landscape_position, y = n, fill = inundated)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Unique Plot Counts by Landscape Position and Inundation",
+    x = "Landscape Position",
+    y = "Count of Unique Plots",
+    fill = "Inundated"
+  ) +
+  theme_bw() 
+  
+
+
+n_distinct(df_long2$plot_ID) #35 total plots
+
+```
+
+#Arrange timeseries figures into a grid to save as single figure
+```{r}
+# Install if you don't have it
+ install.packages("patchwork")
+library(patchwork)
+
+# Arrange plots in two columns (3 rows x 2 columns) 
+combined_plot <- (title1 + title2) /
+                 (soiltemp_landpos + soiltemp_landposinun) /
+                 (airtemp_landpos + airtemp_landposinun) /
+                 (thaw_landpos + thaw_landposinun)/
+                 (VWC_landpos + VWC_landposinun) 
+                # plot_layout(guides = "collect") # Collects all legends into one
+combined_plot
+
+
+
+#remove titles from each individual plot 
+library(patchwork)
+
+combined_plot <- (
+  
+  soiltemp_landpos + labs(title = NULL) + 
+  soiltemp_landposinun + labs(title = NULL)
+) /
+(
+  airtemp_landpos + labs(title = NULL) + 
+  airtemp_landposinun + labs(title = NULL)
+) /
+(
+  thaw_landpos + labs(title = NULL) + 
+  thaw_landposinun + labs(title = NULL)
+) /
+(
+  VWC_landpos + labs(title = NULL) + 
+  VWC_landposinun + labs(title = NULL)
+) 
+
+
+combined_plot
+
+
+```
+#patchwork not working, trying GridExtra
+```{r}
+# ===================================================================
+# STEP 5: Combine Plots Using gridExtra (Alternative to patchwork)
+# ===================================================================
+
+library(gridExtra)
+library(grid)  # For textGrob
+
+#  individual plots:
+# soiltemp_landpos, soiltemp_landposinun
+# airtemp_landpos, airtemp_landposinun  
+# thaw_landpos, thaw_landposinun
+# VWC_landpos, VWC_landposinun
+
+# Method 1: Simple grid arrangement
+combined_plot <- grid.arrange(
+  soiltemp_landpos, soiltemp_landposinun,
+  airtemp_landpos, airtemp_landposinun,
+  thaw_landpos, thaw_landposinun,
+  VWC_landpos, VWC_landposinun,
+  ncol = 2,  # Two columns
+  nrow = 4   # Four rows
+)
+
+# Method 2: With custom column headers
+# Create text grobs for headers
+header_left <- textGrob("Landscape Position", 
+                        gp = gpar(fontsize = 14, fontface = "bold"))
+header_right <- textGrob("Landscape Position and Inundation", 
+                         gp = gpar(fontsize = 14, fontface = "bold"))
+
+# Arrange with headers
+combined_plot_with_headers <- grid.arrange(
+  header_left, header_right,
+  soiltemp_landpos + labs(title = NULL), 
+  soiltemp_landposinun + labs(title = NULL),
+  airtemp_landpos + labs(title = NULL), 
+  airtemp_landposinun + labs(title = NULL),
+  thaw_landpos + labs(title = NULL), 
+  thaw_landposinun + labs(title = NULL),
+  VWC_landpos + labs(title = NULL), 
+  VWC_landposinun + labs(title = NULL),
+  ncol = 2,
+  nrow = 5,  # 5 rows now (1 for headers, 4 for plots)
+  heights = c(0.5, 2, 2, 2, 2)  # Make header row shorter
+)
+
+
+
+# Alternative using cowplot (another option)
+# install.packages("cowplot")
+library(cowplot)
+
+combined_cowplot <- plot_grid(
+  soiltemp_landpos + labs(title = NULL),
+  soiltemp_landposinun + labs(title = NULL),
+  airtemp_landpos + labs(title = NULL),
+  airtemp_landposinun + labs(title = NULL),
+  thaw_landpos + labs(title = NULL),
+  thaw_landposinun + labs(title = NULL),
+  VWC_landpos + labs(title = NULL),
+  VWC_landposinun + labs(title = NULL),
+  ncol = 2,
+  nrow = 4,
+  labels = "AUTO",  # Adds A, B, C, D... labels
+  align = "hv"  # Aligns plots horizontally and vertically
+)
+
+print(combined_cowplot)
+```
+
+
+
+#save image to maintain dimensions 
+```{r}
+ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/enviro_variables_landposinun.png",  # File name and extension
+  plot = combined_plot,        # The plot to save (default is the last plot created)
+  width = 20,                 # Width in inches
+  height = 20,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+```
+
+#Adding column titles to the combined fig 
+```{r}
+library(patchwork)
+library(ggplot2)
+
+# First, remove individual titles from each plot
+soiltemp_landpos <- soiltemp_landpos + theme(plot.title = element_blank())
+soiltemp_landposinun <- soiltemp_landposinun + theme(plot.title = element_blank())
+airtemp_landpos <- airtemp_landpos + theme(plot.title = element_blank())
+airtemp_landposinun <- airtemp_landposinun + theme(plot.title = element_blank())
+thaw_landpos <- thaw_landpos + theme(plot.title = element_blank())
+thaw_landposinun <- thaw_landposinun + theme(plot.title = element_blank())
+VWC_landpos <- VWC_landpos + theme(plot.title = element_blank())
+VWC_landposinun <- VWC_landposinun + theme(plot.title = element_blank())
+
+# Create empty plots for column titles
+title1 <- ggplot() + 
+  annotate("text", x = 0.5, y = 0.5, label = "Landscape Position", size = 5, fontface = "bold") + 
+  theme_void()
+
+title2 <- ggplot() + 
+  annotate("text", x = 0.5, y = 0.5, label = "Landscape Position and Inundation", size = 5, fontface = "bold") + 
+  theme_void()
+
+# Arrange plots with column titles
+combined_plot2 <- (title1 + title2) /
+                 (soiltemp_landpos + soiltemp_landposinun) /
+                 (airtemp_landpos + airtemp_landposinun) /
+                 (thaw_landpos + thaw_landposinun) /
+                 (VWC_landpos + VWC_landposinun) +
+                 plot_layout(heights = c(0.5, 1, 1, 1, 1)) #, widths = c(0.3, 3)) #widths not working, may adjust later 
+
+
+# # Add overall bottom title if needed
+# combined_plot2 <- combined_plot + 
+#   plot_annotation(
+#     caption = "Landscape Position",
+#     theme = theme(plot.caption = element_text(hjust = 0.5, size = 12, face = "bold"))
+#   )
+
+combined_plot2
+```
+#Patchwork not working, try gridExtra
+```{r}
+# ===================================================================
+# COMBINING PLOTS WITH GRIDEXTRA (Alternative to patchwork)
+# ===================================================================
+
+library(gridExtra)
+library(grid)
+library(ggplot2)
+
+# First, remove individual titles from each plot
+soiltemp_landpos <- soiltemp_landpos + theme(plot.title = element_blank())
+soiltemp_landposinun <- soiltemp_landposinun + theme(plot.title = element_blank())
+airtemp_landpos <- airtemp_landpos + theme(plot.title = element_blank())
+airtemp_landposinun <- airtemp_landposinun + theme(plot.title = element_blank())
+thaw_landpos <- thaw_landpos + theme(plot.title = element_blank())
+thaw_landposinun <- thaw_landposinun + theme(plot.title = element_blank())
+VWC_landpos <- VWC_landpos + theme(plot.title = element_blank())
+VWC_landposinun <- VWC_landposinun + theme(plot.title = element_blank())
+
+# Create text grobs for column titles
+# textGrob creates text objects that can be placed in the grid
+title1 <- textGrob("Landscape Position", 
+                   gp = gpar(fontsize = 14, fontface = "bold"))
+
+title2 <- textGrob("Landscape Position and Inundation", 
+                   gp = gpar(fontsize = 14, fontface = "bold"))
+
+# Arrange all plots in a grid with titles
+# The layout is: 2 columns, 5 rows (1 title row + 4 plot rows)
+combined_plot2 <- grid.arrange(
+  title1, title2,                              # Row 1: Column headers
+  soiltemp_landpos, soiltemp_landposinun,     # Row 2: Soil temp plots
+  airtemp_landpos, airtemp_landposinun,       # Row 3: Air temp plots
+  thaw_landpos, thaw_landposinun,             # Row 4: Thaw depth plots
+  VWC_landpos, VWC_landposinun,               # Row 5: VWC plots
+  ncol = 2,                                    # 2 columns
+  nrow = 5,                                    # 5 rows total
+  heights = c(0.5, 2, 2, 2, 2)                # Make title row shorter (0.5 units)
+                                               # and each plot row taller (2 units each)
+)
+
+# Display the combined plot
+combined_plot2
+
+
+```
+
+#save image to maintain dimensions 
+```{r}
+ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/enviro_variables_landposinun2.png",  # File name and extension
+  plot = combined_plot2,        # The plot to save (default is the last plot created)
+  width = 20,                 # Width in inches
+  height = 20,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+```
+
+
+
+#Stats
+```{r}
+# ===================================================================
+# STEP 1: Sample Size Check and Data Filtering
+# ===================================================================
+
+# Load required packages
+library(dplyr)
+library(ggplot2)
+
+# Count observations by landscape position (ignoring plot_type and inundation)
+sample_sizes_landscape <- df_wide %>%
+  group_by(landscape_position) %>%
+  summarise(n = n()) %>%
+  arrange(landscape_position)
+
+print("Sample sizes by landscape position:")
+print(sample_sizes_landscape)
+
+# Check sample sizes by landscape position AND inundation status
+sample_sizes_combo <- df_wide %>%
+  group_by(landscape_position, inundated) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  arrange(landscape_position, inundated)
+
+print("Sample sizes by landscape position × inundation:")
+print(sample_sizes_combo)
+
+# Filter out any combinations with n < 5 for the inundation analysis
+# This should remove "slope + inundated=Y" if n < 5
+df_filtered <- df_wide %>%
+  group_by(landscape_position, inundated) %>%
+  filter(n() >= 5) %>%
+  ungroup()
+
+# Verify what was removed
+print("Combinations excluded (n<5):")
+excluded <- anti_join(
+  df_wide %>% distinct(landscape_position, inundated),
+  df_filtered %>% distinct(landscape_position, inundated)
+)
+print(excluded)
+
+#so need to exclude slope inundated with n = 2 
+```
+
+#Testing normality / homogeneity of var - by landscape position 
+```{r}
+#  test for LANDSCAPE POSITION ONLY (3 groups: lowland, slope, upland)
+
+library(car)  # For Levene's test
+
+# Create a list of environmental variables to test
+env_vars <- c("soil_temp_10_cm", "air_temp", "thawdepth", "VWC")
+var_names <- c("Soil Temperature (10cm)", "Air Temperature", 
+               "Thaw Depth", "Volumetric Water Content")
+
+# Initialize a dataframe to store assumption test results
+assumption_results <- data.frame(
+  Variable = var_names,
+  Shapiro_p = NA,
+  Levene_p = NA,
+  Normal = NA,
+  Homogeneous = NA
+)
+
+# Loop through each environmental variable and test assumptions
+for(i in 1:length(env_vars)) {
+  
+  var <- env_vars[i]
+  
+  cat("\n==========================================\n")
+  cat("Testing assumptions for:", var_names[i], "\n")
+  cat("==========================================\n")
+  
+  # Extract the variable as a vector
+  var_data <- df_wide[[var]]
+  
+  # NORMALITY TEST: Shapiro-Wilk
+  # Note: Shapiro-Wilk can only handle n <= 5000
+  # If you have more data, take a random sample
+  if(length(var_data) > 5000) {
+    shapiro_result <- shapiro.test(sample(var_data, 5000))
+  } else {
+    shapiro_result <- shapiro.test(var_data)
+  }
+  
+  cat("Shapiro-Wilk test p-value:", shapiro_result$p.value, "\n")
+  cat("  Interpretation:", ifelse(shapiro_result$p.value > 0.05, 
+                                  "Data appear normal (p > 0.05)", 
+                                  "Data are NOT normal (p <= 0.05)"), "\n")
+  
+  # HOMOGENEITY OF VARIANCE TEST: Levene's Test
+  # Tests if variance is equal across groups
+  formula_str <- paste(var, "~ landscape_position")
+  levene_result <- leveneTest(as.formula(formula_str), data = df_wide)
+  levene_p <- levene_result$`Pr(>F)`[1]
+  
+  cat("Levene's test p-value:", levene_p, "\n")
+  cat("  Interpretation:", ifelse(levene_p > 0.05, 
+                                  "Variances are homogeneous (p > 0.05)", 
+                                  "Variances are NOT homogeneous (p <= 0.05)"), "\n")
+  
+  # Store results
+  assumption_results$Shapiro_p[i] <- shapiro_result$p.value
+  assumption_results$Levene_p[i] <- levene_p
+  assumption_results$Normal[i] <- shapiro_result$p.value > 0.05
+  assumption_results$Homogeneous[i] <- levene_p > 0.05
+}
+
+# Display summary table
+
+cat("SUMMARY OF ASSUMPTION TESTS\n")
+
+print(assumption_results)
+
+# Decision: Which test to use?
+cat("\nRECOMMENDATION:\n")
+if(all(assumption_results$Normal) & all(assumption_results$Homogeneous)) {
+  cat("✓ All assumptions met: Use ANOVA\n")
+} else {
+  cat("✗ Assumptions violated: Use Kruskal-Wallis (non-parametric)\n")
+}
+
+#all have homogeneity of var, but all not normal 
+```
+
+#check assumptions, with QQ-plots, landscape level only 
+```{r}
+
+# tests whether data meet assumptions for parametric tests
+# (normality and homogeneity of variance) for each environmental variable
+# across landscape positions (lowland, slope, upland)
+# ===================================================================
+
+# Load required packages
+library(dplyr)      # For data manipulation
+library(ggplot2)    # For creating plots
+library(car)        # For Levene's test (homogeneity of variance)
+library(gridExtra)  # For combining multiple plots
+library(grid)       # For textGrob
+
+# ===================================================================
+# PART A: SET UP VARIABLES TO TEST
+# ===================================================================
+
+# Create a list of environmental variables we want to test
+env_vars <- c("soil_temp_10_cm", "air_temp", "thawdepth", "VWC")
+
+# Create readable names for plots and tables
+var_names <- c("Soil Temperature (10cm)", 
+               "Air Temperature", 
+               "Thaw Depth", 
+               "Volumetric Water Content")
+
+# Create a dataframe to store all assumption test results
+assumption_results <- data.frame(
+  Variable = var_names,              # Variable name
+  Shapiro_p = NA,                    # p-value from Shapiro-Wilk test
+  Levene_p = NA,                     # p-value from Levene's test
+  Normal = NA,                       # TRUE/FALSE: Is data normal?
+  Homogeneous = NA,                  # TRUE/FALSE: Are variances equal?
+  Recommended_Test = NA              # Which test should we use?
+)
+
+# ===================================================================
+# PART B: CREATE QQ PLOTS FOR VISUAL ASSESSMENT OF NORMALITY
+# ===================================================================
+
+# Create an empty list to store all QQ plots
+qq_plot_list <- list()
+
+# Loop through each environmental variable to create QQ plots
+for(i in 1:length(env_vars)) {
+  
+  var <- env_vars[i]        # Current variable name (e.g., "soil_temp_10_cm")
+  var_label <- var_names[i] # Readable name (e.g., "Soil Temperature (10cm)")
+  
+  # Create QQ plot for this variable
+  # geom_qq() plots theoretical quantiles vs sample quantiles
+  # geom_qq_line() adds the reference line (what we'd expect if normal)
+  qq_plot <- ggplot(df_wide, aes(sample = .data[[var]])) +
+    geom_qq(alpha = 0.5, color = "steelblue") +        # Plot the points
+    geom_qq_line(color = "red", linewidth = 1) +       # Add reference line
+    labs(
+      title = var_label,
+      x = "Theoretical Quantiles",
+      y = "Sample Quantiles"
+    ) +
+    theme_bw() +                                        # Clean black/white theme
+    theme(
+      plot.title = element_text(size = 11, face = "bold"),
+      axis.title = element_text(size = 9)
+    )
+  
+  # Store this plot in our list
+  qq_plot_list[[i]] <- qq_plot
+}
+
+# Combine all QQ plots into a single figure
+# This makes it easy to compare normality across all variables
+combined_qq <- grid.arrange(
+  grobs = qq_plot_list,    # Our list of QQ plots
+  ncol = 2,                # Arrange in 2 columns
+  nrow = 2,                # And 2 rows (4 plots total)
+  top = textGrob("QQ Plots: Visual Assessment of Normality", 
+                 gp = gpar(fontsize = 14, fontface = "bold"))
+)
+
+# Display the combined QQ plot
+combined_qq
+
+
+# ===================================================================
+# PART C: FORMAL STATISTICAL TESTS OF ASSUMPTIONS
+# ===================================================================
+
+# Loop through each environmental variable and run formal tests
+for(i in 1:length(env_vars)) {
+  
+  var <- env_vars[i]
+  var_label <- var_names[i]
+  
+  cat("\n==========================================\n")
+  cat("Testing assumptions for:", var_label, "\n")
+  cat("==========================================\n")
+  
+  # Extract the variable as a vector (removing any NAs)
+  var_data <- df_wide[[var]]
+  var_data <- var_data[!is.na(var_data)]  # Remove missing values
+  
+  # -------------------------------------------------------------------
+  # TEST 1: NORMALITY - Shapiro-Wilk Test
+  # -------------------------------------------------------------------
+  # If p > 0.05, we fail to reject H0 (data appear normal)
+  # If p <= 0.05, we reject H0 (data are NOT normal)
+  
+  # Note: Shapiro-Wilk can only handle sample sizes <= 5000
+  # For larger datasets, we test a random sample
+  if(length(var_data) > 5000) {
+    cat("  Note: Sample size > 5000, testing random sample of 5000\n")
+    shapiro_result <- shapiro.test(sample(var_data, 5000))
+  } else {
+    shapiro_result <- shapiro.test(var_data)
+  }
+  
+  # Display results
+  cat("\n1. NORMALITY TEST (Shapiro-Wilk):\n")
+  cat("   W statistic:", round(shapiro_result$statistic, 4), "\n")
+  cat("   p-value:", format.pval(shapiro_result$p.value, digits = 3), "\n")
+  
+  # Interpret the result
+  is_normal <- shapiro_result$p.value > 0.05
+  if(is_normal) {
+    cat("   ✓ Data appear NORMAL (p > 0.05)\n")
+    cat("   → Points should fall along line in QQ plot\n")
+  } else {
+    cat("   ✗ Data are NOT NORMAL (p <= 0.05)\n")
+    cat("   → Points deviate from line in QQ plot\n")
+  }
+  
+  # -------------------------------------------------------------------
+  # TEST 2: HOMOGENEITY OF VARIANCE - Levene's Test
+  # -------------------------------------------------------------------
+  # If p > 0.05, we fail to reject H0 (variances are homogeneous)
+  # If p <= 0.05, we reject H0 (variances are NOT equal)
+  
+  # Create the formula for testing (e.g., "soil_temp_10_cm ~ landscape_position")
+  formula_str <- paste(var, "~ landscape_position")
+  
+  # Run Levene's test
+  levene_result <- leveneTest(as.formula(formula_str), data = df_wide)
+  levene_p <- levene_result$`Pr(>F)`[1]  # Extract p-value
+  levene_f <- levene_result$`F value`[1] # Extract F-statistic
+  
+  # Display results
+  cat("\n2. HOMOGENEITY OF VARIANCE (Levene's Test):\n")
+  cat("   F statistic:", round(levene_f, 4), "\n")
+  cat("   p-value:", format.pval(levene_p, digits = 3), "\n")
+  
+  # Interpret the result
+  is_homogeneous <- levene_p > 0.05
+  if(is_homogeneous) {
+    cat("   ✓ Variances are HOMOGENEOUS (p > 0.05)\n")
+    cat("   → Groups have similar spread in boxplots\n")
+  } else {
+    cat("   ✗ Variances are NOT HOMOGENEOUS (p <= 0.05)\n")
+    cat("   → Groups have different spread in boxplots\n")
+  }
+  
+  # -------------------------------------------------------------------
+  # DECISION: Which statistical test should we use?
+  # -------------------------------------------------------------------
+  cat("\n3. RECOMMENDATION:\n")
+  if(is_normal & is_homogeneous) {
+    cat("   → Use PARAMETRIC test (ANOVA with Tukey post-hoc)\n")
+    recommended <- "ANOVA"
+  } else {
+    cat("   → Use NON-PARAMETRIC test (Kruskal-Wallis with Dunn post-hoc)\n")
+    if(!is_normal) cat("      Reason: Data not normally distributed\n")
+    if(!is_homogeneous) cat("      Reason: Variances not homogeneous\n")
+    recommended <- "Kruskal-Wallis"
+  }
+  
+  # Store all results in our summary table
+  assumption_results$Shapiro_p[i] <- shapiro_result$p.value
+  assumption_results$Levene_p[i] <- levene_p
+  assumption_results$Normal[i] <- is_normal
+  assumption_results$Homogeneous[i] <- is_homogeneous
+  assumption_results$Recommended_Test[i] <- recommended
+}
+
+# ===================================================================
+# PART D: CREATE SUMMARY TABLE OF ASSUMPTION TESTS
+# ===================================================================
+
+cat("SUMMARY TABLE: ASSUMPTION TEST RESULTS\n")
+
+# Print the results table
+print(assumption_results)
+
+# Create a nicely formatted table for saving/reporting
+library(knitr)  # For nice table formatting
+
+# Format p-values to show more clearly
+assumption_results_formatted <- assumption_results %>%
+  mutate(
+    Shapiro_p = format.pval(Shapiro_p, digits = 3, eps = 0.001),
+    Levene_p = format.pval(Levene_p, digits = 3, eps = 0.001),
+    Normal = ifelse(Normal, "Yes ✓", "No ✗"),
+    Homogeneous = ifelse(Homogeneous, "Yes ✓", "No ✗")
+  )
+
+# Display formatted table
+kable(assumption_results_formatted, 
+      caption = "Statistical Assumption Tests for Environmental Variables")
+
+
+# ===================================================================
+# PART E: CREATE ADDITIONAL QQ PLOTS BY GROUP (OPTIONAL)
+# ===================================================================
+
+# Sometimes it's useful to look at QQ plots for each landscape position
+# separately to see if normality differs by group
+
+# Example: QQ plots for soil temperature by landscape position
+qq_by_group <- ggplot(df_wide, aes(sample = soil_temp_10_cm)) +
+  geom_qq(alpha = 0.5, color = "steelblue") +
+  geom_qq_line(color = "red", linewidth = 1) +
+  facet_wrap(~landscape_position, ncol = 3) +  # Separate panel for each group
+  labs(
+    title = "QQ Plots: Soil Temperature by Landscape Position",
+    subtitle = "Check if normality holds within each group",
+    x = "Theoretical Quantiles",
+    y = "Sample Quantiles"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 13, face = "bold"),
+    strip.text = element_text(size = 10, face = "bold")
+  )
+
+# Display the grouped QQ plot
+qq_by_group
+
+
+#All not normally distributed, but have homogeneity of var --> use non-parametric 
+
+```
+
+
+# Landscape position only - Kruskall wallis with post hoc Dunn
+```{r}
+
+library(FSA)  # For Dunn's post-hoc test
+
+# Create a dataframe to store all results
+kw_results <- data.frame(
+  Variable = var_names,
+  Chi_squared = NA,
+  df = NA,
+  p_value = NA,
+  Significant = NA
+)
+
+# Store post-hoc results separately as list 
+dunn_results_list <- list()
+
+# Loop through each environmental variable
+for(i in 1:length(env_vars)) {
+  
+  var <- env_vars[i]
+  
+  cat("Kruskal-Wallis Test:", var_names[i], "\n")
+
+  
+  # Run Kruskal-Wallis test
+
+  formula_str <- paste(var, "~ landscape_position")
+  kw_test <- kruskal.test(as.formula(formula_str), data = df_wide_filtered)
+  
+  # Extract results
+  chi_sq <- kw_test$statistic
+  df_val <- kw_test$parameter
+  p_val <- kw_test$p.value
+  
+  # Store in results table
+  kw_results$Chi_squared[i] <- chi_sq
+  kw_results$df[i] <- df_val
+  kw_results$p_value[i] <- p_val
+  kw_results$Significant[i] <- ifelse(p_val < 0.05, "YES", "NO")
+  
+  # Print results
+  cat("Chi-squared =", round(chi_sq, 3), "\n")
+  cat("df =", df_val, "\n")
+  cat("p-value =", format.pval(p_val, digits = 3), "\n")
+  cat("Significant?", ifelse(p_val < 0.05, "YES (p < 0.05)", "NO (p >= 0.05)"), "\n")
+  
+  # If significant, run Dunn's post-hoc test
+  if(p_val < 0.05) {
+    cat("\n--- Running Dunn's post-hoc test ---\n")
+    
+    # Dunn's test for pairwise comparisons
+    # method="bh" uses Benjamini-Hochberg correction for multiple comparisons
+    dunn_test <- dunnTest(as.formula(formula_str), 
+                          data = df_wide_filtered, 
+                          method = "bh")
+    
+    # Store results
+    dunn_results_list[[var_names[i]]] <- dunn_test$res
+    
+    # Print pairwise comparisons
+    print(dunn_test$res)
+    
+    # Identify which groups are different
+    sig_comparisons <- dunn_test$res %>%
+      filter(P.adj < 0.05)
+    
+    if(nrow(sig_comparisons) > 0) {
+      cat("\nSignificant pairwise differences (p < 0.05):\n")
+      for(j in 1:nrow(sig_comparisons)) {
+        cat("  ", sig_comparisons$Comparison[j], 
+            " (adjusted p =", round(sig_comparisons$P.adj[j], 4), ")\n")
+      }
+    } else {
+      cat("\nNo significant pairwise differences after correction\n")
+    }
+  } else {
+    cat("\n(Skipping post-hoc test - overall test not significant)\n")
+  }
+}
+
+# Display final summary table
+
+cat("SUMMARY: KRUSKAL-WALLIS RESULTS\n")
+
+print(kw_results)
+```
+
+#Landscape position only - Compact letter display and means 
+```{r}
+
+# Calculate means and standard deviations for each group
+summary_stats_landpos <- df_wide_filtered %>%
+  group_by(landscape_position) %>%
+  summarise(
+    soil_temp_mean = mean(soil_temp_10_cm, na.rm = TRUE),
+    soil_temp_sd = sd(soil_temp_10_cm, na.rm = TRUE),
+    soil_temp_se = sd(soil_temp_10_cm, na.rm = TRUE)/sqrt(sum(!is.na(soil_temp_10_cm))),
+    air_temp_mean = mean(air_temp, na.rm = TRUE),
+    air_temp_sd = sd(air_temp, na.rm = TRUE),
+    air_temp_se = sd(air_temp, na.rm = TRUE)/sqrt(sum(!is.na(air_temp))),
+    thaw_mean = mean(thawdepth, na.rm = TRUE),
+    thaw_sd = sd(thawdepth, na.rm = TRUE),
+    thaw_se = sd(thawdepth, na.rm = TRUE)/sqrt(sum(!is.na(thawdepth))),
+    VWC_mean = mean(VWC, na.rm = TRUE),
+    VWC_sd = sd(VWC, na.rm = TRUE),
+    VWC_se = sd(VWC, na.rm = TRUE)/sqrt(sum(!is.na(VWC))),
+    n = n()
+  )
+
+print("Summary Statistics by Landscape Position:")
+print(summary_stats_landpos)
+
+
+library(writexl)
+write_xlsx(summary_stats_landpos, "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/soilchamber_enviro_vars_means_landpos2_outlierremoved.xlsx")
+
+# Create compact letter display for each variable
+# This tells us which groups are significantly different
+# Groups that share a letter are NOT significantly different
+
+# Helper function to assign letters based on Dunn's test results
+assign_letters <- function(dunn_results, var_name) {
+  
+  if(is.null(dunn_results[[var_name]])) {
+    # No significant differences - all groups get same letter
+    return(data.frame(
+      landscape_position = c("lowland", "slope", "upland"),
+      letters = c("a", "a", "a")
+    ))
+  }
+  
+  # Extract pairwise comparison results
+  comparisons <- dunn_results[[var_name]]
+  
+  # Simple letter assignment logic
+  # (For complex cases, you might want to use multcompView package)
+  groups <- data.frame(
+    landscape_position = c("lowland", "slope", "upland"),
+    letters = c("", "", "")
+  )
+
+ }
+
+# create a manual approach to assigning letters based on Dunn's test results
+# Run this AFTER you see the Dunn's test results above
+# manually assign letters based on which groups differ
+
+# Example (adjust based on your actual results):
+letter_assignments <- list(
+  soil_temp = data.frame(
+    landscape_position = c("lowland", "slope", "upland"),
+    letters = c("a", "a", "a")  # Replace with actual groupings
+  ),
+  air_temp = data.frame(
+    landscape_position = c("lowland", "slope", "upland"),
+    letters = c("a", "a", "a")  # Replace with actual groupings
+  ),
+  thaw = data.frame(
+    landscape_position = c("lowland", "slope", "upland"),
+    letters = c("a", "ab", "b")  # Replace with actual groupings
+  ),
+  VWC = data.frame(
+    landscape_position = c("lowland", "slope", "upland"),
+    letters = c("a", "bc", "c")  # Replace with actual groupings
+  )
+)
+
+
+
+#print("Letter assignments for plotting:")
+print(letter_assignments)
+```
+
+#pub table w/o slope-inun & FCH4 outlier removed 
+```{r}
+#Table with FCH4 outlier & slope-inundated removed 
+pub_table_landpos <- summary_stats_landpos %>%
+  group_by(landscape_position) %>%
+  summarise(
+    N = n(),
+    `Soil Temp (°C)` = paste0(sprintf("%.2f", soil_temp_mean), 
+                                 " ± ", 
+                                 sprintf("%.2f", soil_temp_se)),
+    `Air Temp (°C)` = paste0(sprintf("%.2f", air_temp_mean), 
+                                " ± ", 
+                                sprintf("%.2f", air_temp_se)),
+    `Thaw (cm)` = paste0(sprintf("%.2f", thaw_mean), 
+                                " ± ", 
+                                sprintf("%.2f", thaw_se)),
+    `VWC (%)` = paste0(sprintf("%.2f", VWC_mean), 
+                                 " ± ", 
+                                 sprintf("%.2f", VWC_se)),
+    .groups = 'drop'
+  ) %>%
+select(landscape_position, N,
+         `Soil Temp (°C)`, `Air Temp (°C)`, `Thaw (cm)`, `VWC (%)`)
+
+print(pub_table_landpos)
+
+#Save
+ library(writexl)
+ write_xlsx(pub_table_landpos, "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/soilchamber_enviro_vars_means_landpos_pubtable2.xlsx")
+ 
+
+#Rounding variable means to match # of digits reported in dataset 
+ 
+pub_table_landpos2 <- summary_stats_landpos %>%
+  group_by(landscape_position) %>%
+  summarise(
+    N = n(),
+    `Soil Temp (°C)` = paste0(sprintf("%.1f", soil_temp_mean), 
+                                 " ± ", 
+                                 sprintf("%.1f", soil_temp_se)),
+    `Air Temp (°C)` = paste0(sprintf("%.2f", air_temp_mean), 
+                                " ± ", 
+                                sprintf("%.2f", air_temp_se)),
+    `Thaw (cm)` = paste0(sprintf("%.0f", thaw_mean), 
+                                " ± ", 
+                                sprintf("%.0f", thaw_se)),
+    `VWC (%)` = paste0(sprintf("%.1f", VWC_mean), 
+                                 " ± ", 
+                                 sprintf("%.1f", VWC_se)),
+    .groups = 'drop'
+  ) %>%
+select(landscape_position, N,
+         `Soil Temp (°C)`, `Air Temp (°C)`, `Thaw (cm)`, `VWC (%)`)
+
+print(pub_table_landpos2)
+
+#Save
+ library(writexl)
+ write_xlsx(pub_table_landpos2, "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/soilchamber_enviro_vars_means_landpos_pubtable2_rounded.xlsx")
+
+```
+#********************
+#Figures with stats assigned
+
+#### denoting exclusion of inundated-slope from analyses by chaning transparency of the box
+```{r}
+#dataset with slope-inundated included for SI figure 
+
+#Add transparency to inundated slope boxplot to denote it being left out of analyses
+# Create a variable to control transparency
+df_wide2 <- df_wide %>%
+  filter(flux_CH4 <= 400) %>% #remove outlier 
+  mutate(excluded = ifelse(landscape_position == "slope" & inundated == "Y", 
+                           "excluded", 
+                           "included"))
+#include FCH outlier row 
+df_wide3 <- df_wide %>%
+  mutate(excluded = ifelse(landscape_position == "slope" & inundated == "Y", 
+                           "excluded", 
+                           "included"))
+
+```
+
+
+##### Var vs landscape position only - use df_wide_filtered here to exclude the inundated slope and FCH4 outlier from the means * 
+```{r}
+
+#thawdepth by landpos
+thaw_landpos <- ggplot(df_wide_filtered, aes(x = landscape_position, y = thawdepth, fill = landscape_position)) +
+  geom_boxplot() +
+  labs(title = "Observed Thaw Depth by Landscape Position",
+       x = "Landscape Position",
+       y = "Thaw Depth (cm)") +
+  theme_bw(base_size = 15) +
+    labs(fill = "Landscape Position") +
+    stat_summary(fun=mean, geom="point", shape=23, size=4, fill = "black") +
+  annotate("text", x = "lowland", y = 140, label = "a", fontface = "bold", size = 5) +
+  annotate("text", x = "slope", y = 140, label = "ab", fontface = "bold", size = 5) +
+    annotate("text", x = "upland", y = 140, label = "b", fontface = "bold", size = 5) 
+  
+  
+thaw_landpos
+
+
+#VWC by landpos 
+VWC_landpos <- ggplot(df_wide_filtered, aes(x = landscape_position, y = VWC, fill = landscape_position)) +
+  geom_boxplot() +
+    labs(title = "Observed VWC by Landscape Position",
+       x = "Landscape Position",
+       y = "SWC (%)") +
+  theme_bw(base_size = 15) +
+    labs(fill = "Landscape Position") +
+   stat_summary(fun=mean, geom="point", shape=23, size=4, fill = "black") +
+  annotate("text", x = "lowland", y = 130, label = "a", fontface = "bold", size = 5) +
+  annotate("text", x = "slope", y = 130, label = "b", fontface = "bold", size = 5) +
+    annotate("text", x = "upland", y = 130, label = "b", fontface = "bold", size = 5) 
+
+VWC_landpos
+
+
+
+#soil temp by landpos 
+soiltemp_landpos <- ggplot(df_wide_filtered, aes(x = landscape_position, y = soil_temp_10_cm, fill = landscape_position)) +
+  geom_boxplot() +
+    labs(title = "Observed Soil Temp by Landscape Position",
+       x = "Landscape Position",
+       y = "Soil Temp (C)") +
+  theme_bw(base_size = 15) +
+    labs(fill = "Landscape Position") +
+  stat_summary(fun=mean, geom="point", shape=23, size=4, fill = "black")
+
+soiltemp_landpos
+
+
+
+#air temp by landpos 
+airtemp_landpos <- ggplot(df_wide_filtered, aes(x = landscape_position, y = air_temp, fill = landscape_position)) +
+  geom_boxplot() +
+    labs(title = "Observed Air Temp by Landscape Position",
+       x = "Landscape Position",
+       y = "Air Temp (C)") +
+  theme_bw(base_size = 15) +
+  labs(fill = "Landscape Position") +
+  stat_summary(fun=mean, geom="point", shape=23, size=4, fill = "black")
+
+airtemp_landpos
+
+
+
+  
+```
+#stats - landpos-inun
+
+#### summary - landpos-inun
+
+```{r}
+#slope-inun and FCH4 outlier removed 
+summary_inundation <- df_wide_filtered %>%
+  group_by(landscape_position, inundated) %>%
+  summarise(
+    soil_temp_mean = mean(soil_temp_10_cm, na.rm = TRUE),
+    soil_temp_sd = sd(soil_temp_10_cm, na.rm = TRUE),
+    soil_temp_se = sd(soil_temp_10_cm, na.rm = TRUE)/sqrt(sum(!is.na(soil_temp_10_cm))),
+    air_temp_mean = mean(air_temp, na.rm = TRUE),
+    air_temp_sd = sd(air_temp, na.rm = TRUE),
+    air_temp_se = sd(air_temp, na.rm = TRUE)/sqrt(sum(!is.na(air_temp))),
+    thaw_mean = mean(thawdepth, na.rm = TRUE),
+    thaw_sd = sd(thawdepth, na.rm = TRUE),
+    thaw_se = sd(thawdepth, na.rm = TRUE)/sqrt(sum(!is.na(thawdepth))),
+    VWC_mean = mean(VWC, na.rm = TRUE),
+    VWC_sd = sd(VWC, na.rm = TRUE),
+    VWC_se = sd(VWC, na.rm = TRUE)/sqrt(sum(!is.na(VWC))),
+    n = n()
+  )
+ 
+print(summary_inundation)
+
+#Save
+ library(writexl)
+ write_xlsx(summary_inundation, "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/soilchamber_enviro_vars_means_landpos_inun2.xlsx")
+```
+#pub table w/o slope-inun & FCH4 outlier removed 
+```{r}
+#Table with FCH4 outlier & slope-inundated removed 
+pub_table_landposinun <- summary_inundation %>%
+  group_by(landscape_position, inundated) %>%
+  summarise(
+    N = n(),
+    `Soil Temp (°C)` = paste0(sprintf("%.2f", soil_temp_mean), 
+                                 " ± ", 
+                                 sprintf("%.2f", soil_temp_se)),
+    `Air Temp (°C)` = paste0(sprintf("%.2f", air_temp_mean), 
+                                " ± ", 
+                                sprintf("%.2f", air_temp_se)),
+    `Thaw (cm)` = paste0(sprintf("%.2f", thaw_mean), 
+                                " ± ", 
+                                sprintf("%.2f", thaw_se)),
+    `VWC (%)` = paste0(sprintf("%.2f", VWC_mean), 
+                                 " ± ", 
+                                 sprintf("%.2f", VWC_se)),
+    .groups = 'drop'
+  ) %>%
+select(landscape_position, inundated, N,
+         `Soil Temp (°C)`, `Air Temp (°C)`, `Thaw (cm)`, `VWC (%)`)
+
+print(pub_table_landposinun)
+
+#Save
+ library(writexl)
+ write_xlsx(pub_table_landposinun, "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/soilchamber_enviro_vars_means_landpos_inun2_outlierremoved.xlsx")
+
+ #------------- variables rounded to match formatting reported in dataset ----------------
+ 
+#Table with FCH4 outlier & slope-inundated removed 
+pub_table_landposinun2 <- summary_inundation %>%
+  group_by(landscape_position, inundated) %>%
+  summarise(
+    N = n(),
+    `Soil Temp (°C)` = paste0(sprintf("%.1f", soil_temp_mean), 
+                                 " ± ", 
+                                 sprintf("%.1f", soil_temp_se)),
+    `Air Temp (°C)` = paste0(sprintf("%.2f", air_temp_mean), 
+                                " ± ", 
+                                sprintf("%.2f", air_temp_se)),
+    `Thaw (cm)` = paste0(sprintf("%.0f", thaw_mean), 
+                                " ± ", 
+                                sprintf("%.0f", thaw_se)),
+    `VWC (%)` = paste0(sprintf("%.1f", VWC_mean), 
+                                 " ± ", 
+                                 sprintf("%.1f", VWC_se)),
+    .groups = 'drop'
+  ) %>%
+select(landscape_position, inundated, N,
+         `Soil Temp (°C)`, `Air Temp (°C)`, `Thaw (cm)`, `VWC (%)`)
+
+print(pub_table_landposinun2)
+
+#Save
+ library(writexl)
+ write_xlsx(pub_table_landposinun2, "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/soilchamber_enviro_vars_means_landpos_inun2_outlierremoved_rounded.xlsx")
+```
+
+
+#pub table - WITH inundated slope and FCH4 outlier - ignore for now
+```{r}
+#Table with the inundated slope included & FCH4 outlier 
+pub_table2 <- df_wide3 %>%
+  group_by(landscape_position, inundated) %>%
+  summarise(
+    N = n(),
+    `Soil Temp (°C)` = paste0(sprintf("%.2f", soil_temp_mean), 
+                                 " ± ", 
+                                 sprintf("%.2f", soil_temp_se)),
+    `Air Temp (°C)` = paste0(sprintf("%.2f", air_temp_mean), 
+                                " ± ", 
+                                sprintf("%.2f", air_temp_se)),
+    `Thaw (cm)` = paste0(sprintf("%.2f", thaw_mean), 
+                                " ± ", 
+                                sprintf("%.2f", thaw_se)),
+    `VWC (%)` = paste0(sprintf("%.2f", VWC_mean), 
+                                 " ± ", 
+                                 sprintf("%.2f", VWC_se)),
+    .groups = 'drop'
+  ) %>%
+select(landscape_position, inundated, N,
+         `Soil Temp (°C)`, `Air Temp (°C)`, `Thaw (cm)`, `VWC (%)`)
+
+print(pub_table2)
+
+#Save
+ library(writexl)
+ write_xlsx(pub_table, "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/soilchamber_enviro_vars_means_landpos_inun2.xlsx")
+```
+
+
+#Breaking up the tests 
+
+inundated: differences in var among lowland, slope, upland; not-inundated: differences in var among lowland, slope, upland; 
+then 
+upland: differences in var by inundated, no inundated; lowland: differences in var by inundated and not inundated (excluding slope from here since it only has a non-inundated category)
+ 
+#TO DO: change "median" to mean in script below ** 
+
+streamlined code with help from claude 
+```{r}
+# ===================================================================
+# BREAKDOWN ANALYSIS: LANDSCAPE × INUNDATION INTERACTIONS
+# ===================================================================
+# This script breaks down the landscape × inundation interaction into
+# specific comparisons to understand WHERE differences occur:
+# 1) Within each inundation status: do landscape positions differ?
+# 2) Within each landscape position: does inundation matter?
+# ===================================================================
+
+library(dplyr)
+library(FSA)        # For Dunn's test
+library(ggplot2)
+
+# Define variables
+env_vars <- c("soil_temp_10_cm", "air_temp", "thawdepth", "VWC")
+var_names <- c("Soil Temperature (10cm)", 
+               "Air Temperature", 
+               "Thaw Depth", 
+               "Volumetric Water Content")
+var_short <- c("Soil Temp", "Air Temp", "Thaw Depth", "VWC")
+
+# ===================================================================
+# PART A: SUBSET 1 - INUNDATED SITES ONLY
+# ===================================================================
+# Question: Among INUNDATED sites, do landscape positions differ?
+
+
+
+
+cat("║  ANALYSIS 1: INUNDATED SITES ONLY                            ║\n")
+cat("║  Testing: Do landscape positions differ in inundated areas?  ║\n")
+
+
+# Filter to only inundated sites
+df_inundated <- df_wide_filtered %>%
+  filter(inundated == "Y") %>%
+  group_by(landscape_position) %>%
+  filter(n() >= 5) %>%  # Exclude groups with n < 5
+  ungroup()
+
+# Check sample sizes
+cat("Sample sizes for INUNDATED sites:\n")
+inundated_n <- df_inundated %>%
+  count(landscape_position) %>%
+  arrange(landscape_position)
+print(inundated_n)
+cat("\n")
+
+# Test each environmental variable
+for(i in 1:length(env_vars)) {
+  var <- env_vars[i]
+  var_label <- var_names[i]
+  
+  cat("──────────────────────────────────────────────────────────────\n")
+  cat("Variable:", var_label, "\n")
+  cat("──────────────────────────────────────────────────────────────\n")
+  
+  # Only run test if we have more than 2 groups
+  n_groups <- df_inundated %>% 
+    distinct(landscape_position) %>% 
+    nrow()
+  
+  if(n_groups < 2) {
+    cat("⚠ Not enough groups to test (need at least 2)\n\n")
+    next
+  }
+  
+  # Kruskal-Wallis test
+  formula_str <- paste(var, "~ landscape_position")
+  kw_test <- kruskal.test(as.formula(formula_str), data = df_inundated)
+  
+  cat("Kruskal-Wallis: χ² =", round(kw_test$statistic, 3), 
+      ", p =", format.pval(kw_test$p.value, digits = 3), "\n")
+  
+  # If significant and more than 2 groups, run Dunn's test
+  if(kw_test$p.value < 0.05 && n_groups > 2) {
+    cat("✓ Significant! Running Dunn's post-hoc...\n\n")
+    dunn_test <- dunnTest(as.formula(formula_str), 
+                          data = df_inundated, 
+                          method = "bh")
+    print(dunn_test$res)
+  } else if(kw_test$p.value < 0.05) {
+    cat("✓ Significant difference between the two groups\n")
+  } else {
+    cat("✗ No significant differences\n")
+  }
+  cat("\n")
+}
+
+# ===================================================================
+# PART B: SUBSET 2 - NON-INUNDATED SITES ONLY
+# ===================================================================
+# Question: Among NON-INUNDATED sites, do landscape positions differ?
+
+
+
+cat("║  ANALYSIS 2: NON-INUNDATED SITES ONLY                        ║\n")
+cat("║  Testing: Do landscape positions differ in dry areas?        ║\n")
+
+
+# Filter to only non-inundated sites
+df_not_inundated <- df_wide_filtered %>%
+  filter(inundated == "N")
+
+# Check sample sizes
+cat("Sample sizes for NON-INUNDATED sites:\n")
+not_inundated_n <- df_not_inundated %>%
+  count(landscape_position) %>%
+  arrange(landscape_position)
+print(not_inundated_n)
+cat("\n")
+
+# Test each environmental variable
+for(i in 1:length(env_vars)) {
+  var <- env_vars[i]
+  var_label <- var_names[i]
+  
+  cat("──────────────────────────────────────────────────────────────\n")
+  cat("Variable:", var_label, "\n")
+  cat("──────────────────────────────────────────────────────────────\n")
+  
+  # Kruskal-Wallis test
+  formula_str <- paste(var, "~ landscape_position")
+  kw_test <- kruskal.test(as.formula(formula_str), data = df_not_inundated)
+  
+  cat("Kruskal-Wallis: χ² =", round(kw_test$statistic, 3), 
+      ", p =", format.pval(kw_test$p.value, digits = 3), "\n")
+  
+  # If significant, run Dunn's test
+  if(kw_test$p.value < 0.05) {
+    cat("✓ Significant! Running Dunn's post-hoc...\n\n")
+    dunn_test <- dunnTest(as.formula(formula_str), 
+                          data = df_not_inundated, 
+                          method = "bh")
+    print(dunn_test$res)
+  } else {
+    cat("✗ No significant differences\n")
+  }
+  cat("\n")
+}
+
+# ===================================================================
+# PART C: SUBSET 3 - LOWLAND SITES ONLY
+# ===================================================================
+# Question: Within LOWLAND, does inundation status matter?
+# Test: Mann-Whitney U (Wilcoxon rank-sum test) -- kruskall-wallis needs at least 3 levels
+
+
+cat("║  ANALYSIS 3: LOWLAND SITES ONLY                              ║\n")
+cat("║  Testing: Does inundation affect lowland environments?       ║\n")
+
+
+# Filter to only lowland sites
+df_lowland <- df_wide_filtered %>%
+  filter(landscape_position == "lowland")
+
+# Check sample sizes
+cat("Sample sizes for LOWLAND sites:\n")
+lowland_n <- df_lowland %>%
+  count(inundated) %>%
+  arrange(inundated)
+print(lowland_n)
+cat("\n")
+
+# Test each environmental variable
+# Use Wilcoxon test (Mann-Whitney U) for 2-group comparison
+for(i in 1:length(env_vars)) {
+  var <- env_vars[i]
+  var_label <- var_names[i]
+  
+  cat("──────────────────────────────────────────────────────────────\n")
+  cat("Variable:", var_label, "\n")
+  cat("──────────────────────────────────────────────────────────────\n")
+  
+  # Wilcoxon rank-sum test (Mann-Whitney U)
+  # This is the 2-group version of Kruskal-Wallis
+  formula_str <- paste(var, "~ inundated")
+  wilcox_test <- wilcox.test(as.formula(formula_str), data = df_lowland)
+  
+  cat("Wilcoxon rank-sum test:\n")
+  cat("  W =", wilcox_test$statistic, "\n")
+  cat("  p =", format.pval(wilcox_test$p.value, digits = 3), "\n")
+  
+  # Calculate medians for interpretation
+  medians <- df_lowland %>%
+    group_by(inundated) %>%
+    summarise(median = median(.data[[var]], na.rm = TRUE))
+  
+  cat("\n  Medians:\n")
+  print(medians)
+  
+  if(wilcox_test$p.value < 0.05) {
+    cat("\n  ✓ SIGNIFICANT difference between inundated and non-inundated lowlands\n")
+    
+    # Determine direction of effect
+    inundated_median <- medians$median[medians$inundated == "Y"]
+    not_inundated_median <- medians$median[medians$inundated == "N"]
+    
+    if(inundated_median > not_inundated_median) {
+      cat("  → Inundated lowlands have HIGHER values\n")
+    } else {
+      cat("  → Inundated lowlands have LOWER values\n")
+    }
+  } else {
+    cat("\n  ✗ No significant difference\n")
+  }
+  cat("\n")
+}
+
+# ===================================================================
+# PART D: SUBSET 4 - UPLAND SITES ONLY
+# ===================================================================
+# Question: Within UPLAND, does inundation status matter?
+# Test: Mann-Whitney U (Wilcoxon rank-sum test)
+
+
+cat("║  ANALYSIS 4: UPLAND SITES ONLY                               ║\n")
+cat("║  Testing: Does inundation affect upland environments?        ║\n")
+
+
+# Filter to only upland sites
+df_upland <- df_wide_filtered %>%
+  filter(landscape_position == "upland")
+
+# Check sample sizes
+cat("Sample sizes for UPLAND sites:\n")
+upland_n <- df_upland %>%
+  count(inundated) %>%
+  arrange(inundated)
+print(upland_n)
+cat("\n")
+
+# Test each environmental variable
+for(i in 1:length(env_vars)) {
+  var <- env_vars[i]
+  var_label <- var_names[i]
+  
+  cat("──────────────────────────────────────────────────────────────\n")
+  cat("Variable:", var_label, "\n")
+  cat("──────────────────────────────────────────────────────────────\n")
+  
+  # Wilcoxon rank-sum test
+  formula_str <- paste(var, "~ inundated")
+  wilcox_test <- wilcox.test(as.formula(formula_str), data = df_upland)
+  
+  cat("Wilcoxon rank-sum test:\n")
+  cat("  W =", wilcox_test$statistic, "\n")
+  cat("  p =", format.pval(wilcox_test$p.value, digits = 3), "\n")
+  
+  # Calculate medians
+  medians <- df_upland %>%
+    group_by(inundated) %>%
+    summarise(median = median(.data[[var]], na.rm = TRUE))
+  
+  cat("\n  Medians:\n")
+  print(medians)
+  
+  if(wilcox_test$p.value < 0.05) {
+    cat("\n  ✓ SIGNIFICANT difference between inundated and non-inundated uplands\n")
+    
+    # Determine direction of effect
+    inundated_median <- medians$median[medians$inundated == "Y"]
+    not_inundated_median <- medians$median[medians$inundated == "N"]
+    
+    if(inundated_median > not_inundated_median) {
+      cat("  → Inundated uplands have HIGHER values\n")
+    } else {
+      cat("  → Inundated uplands have LOWER values\n")
+    }
+  } else {
+    cat("\n  ✗ No significant difference\n")
+  }
+  cat("\n")
+}
+
+
+```
+
+
+
+
+#Figure - adding stats 
+
+#looking at variables  across landscape positions & inundation
+```{r}
+#use df_wide3 which includes both the outlier and slope-inun for SI figure 
+
+#Here is where you use the alpha level 
+
+#To add stat labels: 
+
+# Create letter labels for thaw depth
+# N panel: lowland = a, slope = ab, upland = b
+# Y panel: no letters (no significant differences)
+# thaw_letters <- data.frame(
+#   landscape_position = c("lowland", "slope", "upland"),  # Only N panel
+#   inundated = c("N", "N", "N"),                          # Only N panel
+#   label = c("a", "ab", "b"),                             # Your statistical results
+#   y_position = c(140, 140, 140)                          # Position at top
+# )
+
+
+ #Letters for N panel
+thaw_letters_only <- data.frame(
+  landscape_position = c("lowland", "slope", "upland"),
+  inundated = c("N", "N", "N"),
+  label = c("a", "ab", "b"),
+  y_position = c(140, 140, 140)
+)
+
+# Asterisks for Y panel - BOTH lowland and upland
+thaw_asterisk <- data.frame(
+  landscape_position = c("lowland", "upland"),  # Both positions
+  inundated = c("Y", "Y"),                      # Both in Y panel
+  label = c("*", "*"),                          # Both get asterisks
+  y_position = c(135, 135)                      # Same height
+)
+
+thaw_landposinun <- ggplot(df_wide3, aes(x = landscape_position, y = thawdepth, fill = landscape_position, alpha = excluded)) +
+  geom_boxplot() +
+  facet_wrap(~inundated) +
+  # Hide the alpha legend but keep the fill legend
+  scale_alpha_manual(values = c("excluded" = 0.3, "included" = 1.0), 
+                     guide = "none") +  # This hides the include/excluded legend
+  theme_bw(base_size = 15) +
+    stat_summary(fun=mean, geom="point", shape=23, size=4, fill = "black", alpha = 1) +
+  # Add letters (regular size)
+  geom_text(data = thaw_letters_only, 
+            aes(x = landscape_position, y = y_position, label = label),
+            fontface = "bold", 
+            size = 5,
+            alpha = 1, #explicitly set to solid 
+            inherti.aes = FALSE)+ #don't inherit alpha transparency from main aes 
+  # Add asterisk (bigger size)
+  geom_text(data = thaw_asterisk, 
+            aes(x = landscape_position, y = y_position, label = label),
+            fontface = "bold", 
+            size = 8,  # Bigger! Adjust this number as needed
+            alpha = 1,  # Explicitly set to solid
+            inherit.aes = FALSE) +  # Don't inherit alpha from main aes
+  labs(title = "Observed thawdepth by Landscape Position & Inundation",
+       x = "Landscape Position",
+       y = "Thaw Depth (cm)",
+       fill = "Landscape Position")
+
+
+thaw_landposinun
+
+
+
+# ===================================================================
+# VWC FIGURE WITH SIGNIFICANCE LETTERS
+# ===================================================================
+
+# Create letter labels for VWC
+# N panel: lowland = a, slope = b, upland = b
+# Y panel: no letters (no significant differences)
+# vwc_letters <- data.frame(
+#   landscape_position = c("lowland", "slope", "upland"),  # Only N panel
+#   inundated = c("N", "N", "N"),                          # Only N panel
+#   label = c("a", "b", "b"),                              # Your statistical results
+#   y_position = c(90, 90, 90)                             # Adjust if needed
+# )
+
+
+#Letters for N panel
+vwc_letters_only <- data.frame(
+  landscape_position = c("lowland", "slope", "upland"),
+  inundated = c("N", "N", "N"),
+  label = c("a", "b", "b"),
+  y_position = c(99, 99, 99) 
+)
+
+# Asterisks for Y panel - BOTH lowland and upland
+vwc_asterisk <- data.frame(
+  landscape_position = c("lowland", "upland"),  # Both positions
+  inundated = c("Y", "Y"),                      # Both in Y panel
+  label = c("*", "*"),                          # Both get asterisks
+  y_position = c(97, 97)                      # Same height
+)
+
+
+VWC_landposinun <- ggplot(df_wide3, aes(x = landscape_position, y = VWC, fill = landscape_position, alpha = excluded)) +
+  geom_boxplot() +
+  facet_wrap(~inundated) +
+    # Hide the alpha legend but keep the fill legend
+  scale_alpha_manual(values = c("excluded" = 0.3, "included" = 1.0), 
+                     guide = "none") +  # This hides the include/excluded legend
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 4, fill = "black", alpha = 1) +
+  # Add letters only to N panel
+  geom_text(data = vwc_letters_only, 
+            aes(x = landscape_position, y = y_position, label = label),
+            fontface = "bold", 
+            size = 5,
+            alpha = 1,  # Explicitly set to solid
+            inherit.aes = FALSE) +  # Don't inherit alpha from main aes
+  # Add asterisk (bigger size)
+  geom_text(data = vwc_asterisk, 
+            aes(x = landscape_position, y = y_position, label = label),
+            fontface = "bold", 
+            size = 8,  # Bigger! Adjust this number as needed
+            alpha = 1,  # Explicitly set to solid
+            inherit.aes = FALSE) +  # Don't inherit alpha from main aes
+  labs(title = "Observed VWC by Landscape Position & Inundation",
+       x = "Landscape Position",
+       y = "SWC (%)",
+       fill = "Landscape Position") +
+  theme_bw(base_size = 15)+
+  scale_y_continuous(limits =c(0,100))
+
+VWC_landposinun
+
+
+#========= soil temp ================
+
+# Asterisks for Y panel - BOTH lowland and upland
+soilT_asterisk <- data.frame(
+  landscape_position = c("lowland"),  # Both positions
+  inundated = c("Y"),                      # Both in Y panel
+  label = c("*"),                          # Both get asterisks
+  y_position = c(15)                      # Same height
+)
+
+
+#soiltemp by landpos and inundated 
+soiltemp_landposinun <- ggplot(df_wide3, aes(x = landscape_position, y = soil_temp_10_cm, fill = landscape_position, alpha = excluded)) +
+  geom_boxplot() +
+    facet_wrap(~inundated)+
+    # Hide the alpha legend but keep the fill legend
+  scale_alpha_manual(values = c("excluded" = 0.3, "included" = 1.0), 
+                     guide = "none") +  # This hides the include/excluded legend
+  # Add asterisk (bigger size)
+  geom_text(data = soilT_asterisk, 
+            aes(x = landscape_position, y = y_position, label = label),
+            fontface = "bold", 
+            size = 8,  # Bigger! Adjust this number as needed
+            alpha = 1,  # Explicitly set to solid
+            inherit.aes = FALSE) +  # Don't inherit alpha from main aes
+    labs(title = "Observed Soil Temp by Landscape Position & Inundation",
+       x = "Landscape Position",
+       y = "Soil Temp (C)",
+       fill = "Landscape Position") +
+  theme_bw(base_size = 15) +
+  stat_summary(fun=mean, geom="point", shape=23, size=4, fill = "black", alpha = 1) 
+soiltemp_landposinun
+
+
+
+#airtemp by landpos and inundated 
+airtemp_landposinun <- ggplot(df_wide3, aes(x = landscape_position, y = air_temp, fill = landscape_position, alpha = excluded )) +
+  geom_boxplot() +
+    facet_wrap(~inundated)+
+    # Hide the alpha legend but keep the fill legend
+  scale_alpha_manual(values = c("excluded" = 0.3, "included" = 1.0), 
+                     guide = "none") +  # This hides the include/excluded legend
+    labs(title = "Observed Air Temp by Landscape Position & Inundation",
+       x = "Landscape Position",
+       y = "Air Temp (C)",
+       fill = "Landscape Position") +
+  theme_bw() +
+  theme_bw(base_size = 15) +
+    labs(fill = "Landscape Position") +
+    stat_summary(fun=mean, geom="point", shape=23, size=4, fill = "black", alpha = 1)
+
+airtemp_landposinun
+
+
+```
+ 
+
+#Final image for paper 
+
+#Full combined plot with landpos, and landpos inun 
+
+```{r}
+library(cowplot)
+
+# Remove legends and titles from all plots
+soiltemp_landpos <- soiltemp_landpos + 
+  theme(plot.title = element_blank()) #, legend.position = "none")
+soiltemp_landposinun <- soiltemp_landposinun + 
+  theme(plot.title = element_blank(), legend.position = "none")
+airtemp_landpos <- airtemp_landpos + 
+  theme(plot.title = element_blank()) #, legend.position = "none")
+airtemp_landposinun <- airtemp_landposinun + 
+  theme(plot.title = element_blank(), legend.position = "none")
+thaw_landpos <- thaw_landpos + 
+  theme(plot.title = element_blank()) #, legend.position = "none")
+thaw_landposinun <- thaw_landposinun + 
+  theme(plot.title = element_blank(), legend.position = "none")
+VWC_landpos <- VWC_landpos + 
+  theme(plot.title = element_blank()) #, legend.position = "none")
+VWC_landposinun <- VWC_landposinun + 
+  theme(plot.title = element_blank(), legend.position = "none")
+
+# Extract legend
+# soiltemp_with_legend <- soiltemp_landpos + 
+#   theme(legend.position = "right")
+# shared_legend <- get_legend(soiltemp_with_legend)
+
+# Create column titles
+title1 <- ggdraw() + 
+  draw_label("Landscape Position", fontface = "bold", size = 14)
+title2 <- ggdraw() + 
+  draw_label("Landscape Position and Inundation", fontface = "bold", size = 14)
+
+# Arrange plots in grid
+plot_grid <- plot_grid(  
+  title1, title2,
+  soiltemp_landpos, soiltemp_landposinun,
+  airtemp_landpos, airtemp_landposinun,
+  thaw_landpos, thaw_landposinun,
+  VWC_landpos, VWC_landposinun,
+  ncol = 2,
+  rel_heights = c(0.3, 1, 1, 1, 1)
+)
+
+# Add legend to the right
+# combined_plot2 <- plot_grid(
+#   plot_grid, 
+#   shared_legend,
+#   ncol = 2,
+#   rel_widths = c(10, 1)
+# )
+
+#combined_plot2
+
+plot_grid
+
+```
+
+
+
+```{r}
+library(cowplot)
+
+# Remove legends and titles from ALL plots
+soiltemp_landpos <- soiltemp_landpos + 
+  theme(plot.title = element_blank(), legend.position = "none")
+soiltemp_landposinun <- soiltemp_landposinun + 
+  theme(plot.title = element_blank(), legend.position = "none")
+airtemp_landpos <- airtemp_landpos + 
+  theme(plot.title = element_blank() , legend.position = "none")
+airtemp_landposinun <- airtemp_landposinun + 
+  theme(plot.title = element_blank(), legend.position = "none")
+thaw_landpos <- thaw_landpos + 
+  theme(plot.title = element_blank() , legend.position = "none")
+thaw_landposinun <- thaw_landposinun + 
+  theme(plot.title = element_blank(), legend.position = "none")
+VWC_landpos <- VWC_landpos + 
+  theme(plot.title = element_blank() , legend.position = "none")
+VWC_landposinun <- VWC_landposinun + 
+  theme(plot.title = element_blank(), legend.position = "none")
+
+# Create column titles using ggdraw
+title1 <- ggdraw() + 
+  draw_label("Landscape Position", fontface = "bold", size = 14)
+
+title2 <- ggdraw() + 
+  draw_label("Landscape Position and Inundation", fontface = "bold", size = 14)
+
+# Arrange all plots in grid - no legend needed!
+combined_plot2 <- plot_grid(
+  title1, title2,
+  soiltemp_landpos, soiltemp_landposinun,
+  airtemp_landpos, airtemp_landposinun,
+  thaw_landpos, thaw_landposinun,
+  VWC_landpos, VWC_landposinun,
+  ncol = 2,
+  nrow = 5,
+  rel_heights = c(0.3, 1, 1, 1, 1)  # Titles shorter, plots equal height
+)
+
+combined_plot2
+
+# Save (commented out)
+# ggsave("environmental_conditions_combined.png",
+#        combined_plot2,
+#        width = 12,
+#        height = 16,
+#        dpi = 300)
+
+```
+
+
+#save 
+```{r}
+ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/enviro_variables_landposinun3.png",  # File name and extension
+  plot = combined_plot2,        # The plot to save (default is the last plot created)
+  width = 20,                 # Width in inches
+  height = 20,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+
+
+
+
+```
+
+
+#Combined plot final 
+
+```{r}
+
+# ===================================================================
+# COMBINING PLOTS WITH GRIDEXTRA (Alternative to patchwork)
+# ===================================================================
+
+library(gridExtra)
+library(grid)
+library(ggplot2)
+
+# First, remove individual titles from each plot
+soiltemp_landpos <- soiltemp_landpos + theme(plot.title = element_blank(), axis.title.x = element_blank(), axis.text.x = element_text(face = "bold"),text = element_text(color = "black"), axis.text = element_text(color = "black"), strip.text = element_text(face = "bold"))             
+
+soiltemp_landposinun <- soiltemp_landposinun + theme(plot.title = element_blank(), axis.title.x = element_blank(), axis.text.x = element_text(face = "bold"),text = element_text(color = "black"), axis.text = element_text(color = "black"), strip.text = element_text(face = "bold"))
+
+airtemp_landpos <- airtemp_landpos + theme(plot.title = element_blank(), axis.title.x = element_blank(), axis.text.x = element_text(face = "bold"),text = element_text(color = "black"), axis.text = element_text(color = "black"), strip.text = element_text(face = "bold"))
+
+airtemp_landposinun <- airtemp_landposinun + theme(plot.title = element_blank(), axis.title.x = element_blank(), axis.text.x = element_text(face = "bold"),text = element_text(color = "black"), axis.text = element_text(color = "black"), strip.text = element_text(face = "bold"))
+
+thaw_landpos <- thaw_landpos + theme(plot.title = element_blank(), axis.title.x = element_blank(), axis.text.x = element_text(face = "bold"),text = element_text(color = "black"), axis.text = element_text(color = "black"), strip.text = element_text(face = "bold"))
+
+thaw_landposinun <- thaw_landposinun + theme(plot.title = element_blank(), axis.title.x = element_blank(), axis.text.x = element_text(face = "bold"),text = element_text(color = "black"), axis.text = element_text(color = "black"), strip.text = element_text(face = "bold"))
+
+VWC_landpos <- VWC_landpos + theme(plot.title = element_blank(), axis.title.x = element_blank(), axis.text.x = element_text(face = "bold"),text = element_text(color = "black"), axis.text = element_text(color = "black"), strip.text = element_text(face = "bold"))
+
+VWC_landposinun <- VWC_landposinun + theme(plot.title = element_blank(), axis.title.x = element_blank(), axis.text.x = element_text(face = "bold"),text = element_text(color = "black"), axis.text = element_text(color = "black"), strip.text = element_text(face = "bold"))
+
+# Create text grobs for column titles
+# textGrob creates text objects that can be placed in the grid
+title1 <- textGrob("Landscape Position", 
+                   gp = gpar(fontsize = 20, fontface = "bold"))
+
+title2 <- textGrob("Landscape Position and Inundation", 
+                   gp = gpar(fontsize = 20, fontface = "bold"))
+
+# Arrange all plots in a grid with titles
+#The layout is: 2 columns, 5 rows (1 title row + 4 plot rows)
+combined_plot2 <- grid.arrange(
+  title1, title2,                              # Row 1: Column headers
+  soiltemp_landpos, soiltemp_landposinun,     # Row 2: Soil temp plots
+  airtemp_landpos, airtemp_landposinun,       # Row 3: Air temp plots
+  thaw_landpos, thaw_landposinun,             # Row 4: Thaw depth plots
+  VWC_landpos, VWC_landposinun,               # Row 5: VWC plots
+  ncol = 2,                                    # 2 columns
+  nrow = 5,                                    # 5 rows total
+  heights = c(0.5, 2, 2, 2, 2),                # Make title row shorter (0.5 units) # and each plot row taller (2 units each)
+   widths = c(0.7, 1)  #ratio of right column to left column                                             
+)
+
+# Display the combined plot
+combined_plot2
+
+```
+
+#save 
+```{r}
+#nolegend2 = redone with the adjusted landscape means to remove outlier and slope inun for SI fig 
+ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/enviro_variables_landposinun_nolegend2.png",  # File name and extension
+  plot = combined_plot2,        # The plot to save (default is the last plot created)
+  width = 35,                 # Width in inches
+  height = 35,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm",
+  background = "white"# Units for width and height (can be "in", "cm", or "mm")
+)
+```
+
+#END
+
+
+#================================
+#comprehensive stats streamlined from claude based on code above -- have not checked this over for correctness yet* 
+
+```{r}
+# ===================================================================
+# STATISTICAL TESTS FOR LANDSCAPE POSITION AND INUNDATION
+# ===================================================================
+# This script runs statistical tests to determine if environmental
+# variables differ among:
+# 1) Landscape positions (lowland, slope, upland)
+# 2) Landscape position × inundation status combinations
+# ===================================================================
+
+# Load required packages
+library(dplyr)      # For data manipulation
+library(ggplot2)    # For creating plots
+library(FSA)        # For Dunn's post-hoc test
+library(knitr)      # For formatted tables
+
+# ===================================================================
+# PART A: PREPARE DATA AND VARIABLES
+# ===================================================================
+
+# Define environmental variables to test
+env_vars <- c("soil_temp_10_cm", "air_temp", "thawdepth", "VWC")
+
+# Create readable names for output
+var_names <- c("Soil Temperature (10cm)", 
+               "Air Temperature", 
+               "Thaw Depth", 
+               "Volumetric Water Content")
+
+# Short names for tables
+var_short <- c("Soil Temp", "Air Temp", "Thaw Depth", "VWC")
+
+# ===================================================================
+# PART B: FILTER DATA TO EXCLUDE GROUPS WITH n < 5
+# ===================================================================
+
+cat("==========================================\n")
+cat("STEP B: CHECKING SAMPLE SIZES\n")
+cat("==========================================\n\n")
+
+# First, check sample sizes for landscape position only
+sample_sizes_landscape <- df_wide %>%
+  group_by(landscape_position) %>%
+  summarise(n = n()) %>%
+  arrange(landscape_position)
+
+cat("Sample sizes by landscape position:\n")
+print(sample_sizes_landscape)
+
+# Check sample sizes for landscape × inundation combinations
+sample_sizes_combo <- df_wide %>%
+  group_by(landscape_position, inundated) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  arrange(landscape_position, inundated)
+
+cat("\nSample sizes by landscape position × inundation:\n")
+print(sample_sizes_combo)
+
+# Filter out combinations with n < 5
+# This creates our dataset for the inundation analysis
+df_filtered <- df_wide %>%
+  group_by(landscape_position, inundated) %>%
+  filter(n() >= 5) %>%
+  ungroup()
+
+# Check what was excluded
+excluded_combos <- sample_sizes_combo %>%
+  filter(n < 5)
+
+if(nrow(excluded_combos) > 0) {
+  cat("\n⚠ EXCLUDED combinations (n < 5):\n")
+  print(excluded_combos)
+} else {
+  cat("\n✓ No combinations excluded (all n >= 5)\n")
+}
+
+cat("\nFinal sample size for inundation analysis:", nrow(df_filtered), "\n")
+
+# ===================================================================
+# PART C: ANALYSIS 1 - LANDSCAPE POSITION ONLY
+# ===================================================================
+
+cat("\n\n==========================================\n")
+cat("ANALYSIS 1: LANDSCAPE POSITION ONLY\n")
+cat("==========================================\n")
+cat("Testing: Do environmental variables differ among\n")
+cat("         lowland, slope, and upland positions?\n")
+cat("Method:  Kruskal-Wallis test (non-parametric ANOVA)\n")
+cat("==========================================\n")
+
+# Create dataframe to store Kruskal-Wallis results
+kw_results <- data.frame(
+  Variable = var_short,
+  Chi_squared = NA,
+  df = NA,
+  p_value = NA,
+  Significant = NA
+)
+
+# Create a list to store Dunn's test results for each variable
+dunn_results_landscape <- list()
+
+# Loop through each environmental variable
+for(i in 1:length(env_vars)) {
+  
+  var <- env_vars[i]
+  var_label <- var_names[i]
+  
+  cat("\n------------------------------------------\n")
+  cat("Variable:", var_label, "\n")
+  cat("------------------------------------------\n")
+  
+  # -------------------------------------------------------------------
+  # Run Kruskal-Wallis Test
+  # -------------------------------------------------------------------
+
+  
+  formula_str <- paste(var, "~ landscape_position")
+  kw_test <- kruskal.test(as.formula(formula_str), data = df_wide)
+  
+  # Extract results
+  chi_sq <- kw_test$statistic
+  df_val <- kw_test$parameter
+  p_val <- kw_test$p.value
+  
+  # Store results
+  kw_results$Chi_squared[i] <- chi_sq
+  kw_results$df[i] <- df_val
+  kw_results$p_value[i] <- p_val
+  kw_results$Significant[i] <- ifelse(p_val < 0.05, "YES", "NO")
+  
+  # Display results
+  cat("Kruskal-Wallis Test:\n")
+  cat("  χ² =", round(chi_sq, 3), "\n")
+  cat("  df =", df_val, "\n")
+  cat("  p-value =", format.pval(p_val, digits = 3), "\n")
+  
+  if(p_val < 0.05) {
+    cat("  ✓ SIGNIFICANT (p < 0.05)\n")
+    cat("  → At least one landscape position differs\n")
+  } else {
+    cat("  ✗ NOT SIGNIFICANT (p >= 0.05)\n")
+    cat("  → No evidence of differences among landscape positions\n")
+  }
+  
+  # -------------------------------------------------------------------
+  # If significant, run Dunn's Post-hoc Test
+  # -------------------------------------------------------------------
+  if(p_val < 0.05) {
+    cat("\n  ═══════════════════════════════════════\n")
+    cat("  DUNN'S POST-HOC TEST FOR:", var_label, "\n")
+    cat("  ═══════════════════════════════════════\n")
+    
+    # Dunn's test performs pairwise comparisons
+    # method="bh" = Benjamini-Hochberg correction for multiple comparisons
+    dunn_test <- dunnTest(as.formula(formula_str), 
+                          data = df_wide, 
+                          method = "bh")
+    
+    # Store results
+    dunn_results_landscape[[var_short[i]]] <- dunn_test$res
+    
+    # Display pairwise comparisons
+    cat("\n  Pairwise Comparisons (Dunn's test with BH correction):\n\n")
+    dunn_table <- dunn_test$res %>%
+      mutate(
+        Z = round(Z, 3),
+        P.unadj = format.pval(P.unadj, digits = 3),
+        P.adj = format.pval(P.adj, digits = 3),
+        Sig = ifelse(P.adj < 0.05, "***", "ns")
+      )
+    print(dunn_table)
+    cat("\n  ═══════════════════════════════════════\n")
+    
+    # Summarize significant differences
+    sig_pairs <- dunn_test$res %>% filter(P.adj < 0.05)
+    
+    if(nrow(sig_pairs) > 0) {
+      cat("\n  ✓ Significant pairwise differences (p < 0.05):\n")
+      for(j in 1:nrow(sig_pairs)) {
+        cat("     •", sig_pairs$Comparison[j], 
+            "(p =", round(sig_pairs$P.adj[j], 4), ")\n")
+      }
+    } else {
+      cat("\n  Note: Overall test significant but no pairwise differences\n")
+      cat("        after correction for multiple comparisons\n")
+    }
+  } else {
+    cat("\n  (Skipping post-hoc test - overall test not significant)\n")
+    dunn_results_landscape[[var_short[i]]] <- NULL
+  }
+}
+
+# Display summary table of Kruskal-Wallis results
+cat("\n\n==========================================\n")
+cat("SUMMARY: LANDSCAPE POSITION ANALYSIS\n")
+cat("==========================================\n\n")
+print(kw_results)
+
+
+
+# ===================================================================
+# PART D: ANALYSIS 2 - LANDSCAPE POSITION × INUNDATION
+# ===================================================================
+
+cat("\n\n==========================================\n")
+cat("ANALYSIS 2: LANDSCAPE POSITION × INUNDATION\n")
+cat("==========================================\n")
+cat("Testing: Do environmental variables differ among\n")
+cat("         landscape-inundation combinations?\n")
+cat("Method:  Kruskal-Wallis test on combined factor\n")
+cat("Note:    Excluding slope-inundated (n < 5)\n")
+cat("==========================================\n")
+
+# Create a combined factor for landscape × inundation
+# This allows us to test all combinations at once
+df_filtered <- df_filtered %>%
+  mutate(landscape_inundation = paste(landscape_position, 
+                                      inundated, 
+                                      sep = "-"))
+
+# Show the combinations we're testing
+cat("\nCombinations being tested:\n")
+unique_combos <- df_filtered %>%
+  count(landscape_inundation) %>%
+  arrange(landscape_inundation)
+print(unique_combos)
+
+# Create dataframe to store results
+kw_results_inundation <- data.frame(
+  Variable = var_short,
+  Chi_squared = NA,
+  df = NA,
+  p_value = NA,
+  Significant = NA
+)
+
+# Create a list to store Dunn's test results
+dunn_results_inundation <- list()
+
+# Loop through each environmental variable
+for(i in 1:length(env_vars)) {
+  
+  var <- env_vars[i]
+  var_label <- var_names[i]
+  
+  cat("\n------------------------------------------\n")
+  cat("Variable:", var_label, "\n")
+  cat("------------------------------------------\n")
+  
+  # -------------------------------------------------------------------
+  # Run Kruskal-Wallis Test on combined factor
+  # -------------------------------------------------------------------
+  formula_str <- paste(var, "~ landscape_inundation")
+  kw_test <- kruskal.test(as.formula(formula_str), data = df_filtered)
+  
+  # Extract results
+  chi_sq <- kw_test$statistic
+  df_val <- kw_test$parameter
+  p_val <- kw_test$p.value
+  
+  # Store results
+  kw_results_inundation$Chi_squared[i] <- chi_sq
+  kw_results_inundation$df[i] <- df_val
+  kw_results_inundation$p_value[i] <- p_val
+  kw_results_inundation$Significant[i] <- ifelse(p_val < 0.05, "YES", "NO")
+  
+  # Display results
+  cat("Kruskal-Wallis Test:\n")
+  cat("  χ² =", round(chi_sq, 3), "\n")
+  cat("  df =", df_val, "\n")
+  cat("  p-value =", format.pval(p_val, digits = 3), "\n")
+  
+  if(p_val < 0.05) {
+    cat("  ✓ SIGNIFICANT (p < 0.05)\n")
+    cat("  → At least one landscape-inundation combination differs\n")
+  } else {
+    cat("  ✗ NOT SIGNIFICANT (p >= 0.05)\n")
+    cat("  → No evidence of differences among combinations\n")
+  }
+  
+  # -------------------------------------------------------------------
+  # If significant, run Dunn's Post-hoc Test
+  # -------------------------------------------------------------------
+  if(p_val < 0.05) {
+    cat("\n  ═══════════════════════════════════════\n")
+    cat("  DUNN'S POST-HOC TEST FOR:", var_label, "\n")
+    cat("  ═══════════════════════════════════════\n")
+    cat("  (This may take a moment - many pairwise comparisons)\n")
+    
+    dunn_test <- dunnTest(as.formula(formula_str), 
+                          data = df_filtered, 
+                          method = "bh")
+    
+    # Store results
+    dunn_results_inundation[[var_short[i]]] <- dunn_test$res
+    
+    # Display only significant pairwise comparisons
+    sig_pairs <- dunn_test$res %>% 
+      filter(P.adj < 0.05) %>%
+      arrange(P.adj) %>%
+      mutate(
+        Z = round(Z, 3),
+        P.adj = round(P.adj, 4)
+      )
+    
+    if(nrow(sig_pairs) > 0) {
+      cat("\n  ✓ Significant pairwise differences (p < 0.05):\n\n")
+      print(sig_pairs %>% select(Comparison, Z, P.adj))
+      
+      cat("\n  Total significant pairs:", nrow(sig_pairs), 
+          "out of", nrow(dunn_test$res), "\n")
+    } else {
+      cat("\n  Note: Overall test significant but no pairwise differences\n")
+      cat("        after correction for multiple comparisons\n")
+    }
+    
+    cat("  ═══════════════════════════════════════\n")
+    
+    # Save full Dunn's test results for this variable (commented out)
+    # write.csv(dunn_test$res, 
+    #           paste0("dunn_test_", var, "_inundation.csv"), 
+    #           row.names = FALSE)
+    
+  } else {
+    cat("\n  (Skipping post-hoc test - overall test not significant)\n")
+    dunn_results_inundation[[var_short[i]]] <- NULL
+  }
+}
+
+# Display summary table
+cat("\n\n==========================================\n")
+cat("SUMMARY: LANDSCAPE × INUNDATION ANALYSIS\n")
+cat("==========================================\n\n")
+print(kw_results_inundation)
+
+# Save results (commented out)
+# write.csv(kw_results_inundation, 
+#           "kruskal_wallis_inundation_results.csv", 
+#           row.names = FALSE)
+
+# ===================================================================
+# PART E: CALCULATE DESCRIPTIVE STATISTICS
+# ===================================================================
+
+cat("\n\n==========================================\n")
+cat("DESCRIPTIVE STATISTICS\n")
+cat("==========================================\n")
+
+# Calculate means and SDs by landscape position
+cat("\nBy Landscape Position:\n")
+summary_landscape <- df_wide %>%
+  group_by(landscape_position) %>%
+  summarise(
+    across(all_of(env_vars), 
+           list(mean = ~mean(., na.rm = TRUE),
+                sd = ~sd(., na.rm = TRUE)),
+           .names = "{.col}_{.fn}"),
+    n = n()
+  )
+
+print(summary_landscape)
+
+# Save summary statistics (commented out)
+# write.csv(summary_landscape, 
+#           "summary_stats_landscape.csv", 
+#           row.names = FALSE)
+
+# Calculate means and SDs by landscape × inundation
+cat("\n\nBy Landscape Position × Inundation:\n")
+summary_inundation <- df_filtered %>%
+  group_by(landscape_position, inundated) %>%
+  summarise(
+    across(all_of(env_vars), 
+           list(mean = ~mean(., na.rm = TRUE),
+                sd = ~sd(., na.rm = TRUE)),
+           .names = "{.col}_{.fn}"),
+    n = n(),
+    .groups = 'drop'
+  ) %>%
+  arrange(landscape_position, inundated)
+
+print(summary_inundation)
+
+# Save summary statistics (commented out)
+# write.csv(summary_inundation, 
+#           "summary_stats_inundation.csv", 
+#           row.names = FALSE)
+
+# ===================================================================
+# PART F: CREATE LETTER GROUPINGS FOR PLOTS
+# ===================================================================
+
+cat("\n\n==========================================\n")
+cat("CREATING LETTER GROUPINGS FOR PLOTS\n")
+cat("==========================================\n")
+
+# This function assigns letters (a, b, c, etc.) based on Dunn's test
+# Groups that share a letter are NOT significantly different
+assign_letters_from_dunn <- function(dunn_results, groups) {
+  
+  # If no Dunn results (test not significant), all groups get same letter
+  if(is.null(dunn_results)) {
+    letters_df <- data.frame(
+      group = groups,
+      letters = rep("a", length(groups))
+    )
+    return(letters_df)
+  }
+  
+  # Initialize all groups with empty letters
+  letter_assignment <- data.frame(
+    group = groups,
+    letters = "",
+    stringsAsFactors = FALSE
+  )
+  
+  # Get significant pairs (p < 0.05)
+  sig_pairs <- dunn_results %>% filter(P.adj < 0.05)
+  
+  # Simple algorithm: assign letters based on pairwise differences
+  # Groups that are NOT significantly different share letters
+  
+  current_letter <- 1  # Start with 'a'
+  
+  for(i in 1:length(groups)) {
+    current_group <- groups[i]
+    
+    if(letter_assignment$letters[i] == "") {
+      # Assign next available letter
+      letter_assignment$letters[i] <- letters[current_letter]
+      
+      # Find all groups NOT significantly different from current group
+      for(j in (i+1):length(groups)) {
+        if(j > length(groups)) break
+        
+        compare_group <- groups[j]
+        
+        # Check if these two groups are significantly different
+        comparison1 <- paste(current_group, compare_group, sep = " - ")
+        comparison2 <- paste(compare_group, current_group, sep = " - ")
+        
+        is_different <- any(sig_pairs$Comparison %in% c(comparison1, comparison2))
+        
+        # If NOT different, assign same letter
+        if(!is_different && letter_assignment$letters[j] == "") {
+          letter_assignment$letters[j] <- letters[current_letter]
+        }
+      }
+      
+      current_letter <- current_letter + 1
+    }
+  }
+  
+  return(letter_assignment)
+}
+
+# Create letter assignments for landscape position
+cat("\nLetter assignments for LANDSCAPE POSITION:\n")
+cat("(Groups with same letter are not significantly different)\n\n")
+
+landscape_letters_list <- list()
+
+for(i in 1:length(env_vars)) {
+  var_label <- var_short[i]
+  
+  cat(var_label, ":\n")
+  
+  groups <- c("lowland", "slope", "upland")
+  letters_df <- assign_letters_from_dunn(dunn_results_landscape[[var_label]], 
+                                         groups)
+  
+  colnames(letters_df) <- c("landscape_position", "letters")
+  landscape_letters_list[[var_label]] <- letters_df
+  
+  print(letters_df)
+  cat("\n")
+}
+
+# Create letter assignments for landscape × inundation
+cat("\nLetter assignments for LANDSCAPE × INUNDATION:\n")
+cat("(Groups with same letter are not significantly different)\n\n")
+
+inundation_letters_list <- list()
+
+for(i in 1:length(env_vars)) {
+  var_label <- var_short[i]
+  
+  cat(var_label, ":\n")
+  
+  groups <- unique(df_filtered$landscape_inundation)
+  letters_df <- assign_letters_from_dunn(dunn_results_inundation[[var_label]], 
+                                         groups)
+  
+  colnames(letters_df) <- c("landscape_inundation", "letters")
+  inundation_letters_list[[var_label]] <- letters_df
+  
+  print(letters_df)
+  cat("\n")
+}
+
+# ===================================================================
+# PART G: SAVE LETTER ASSIGNMENTS FOR PLOTTING
+# ===================================================================
+
+# These letter assignments can be merged with your plotting data
+# to add significance labels to your boxplots
+
+# Example: Save soil temperature letters
+# write.csv(landscape_letters_list[["Soil Temp"]], 
+#           "letters_soil_temp_landscape.csv", 
+#           row.names = FALSE)
+
+
+```
+

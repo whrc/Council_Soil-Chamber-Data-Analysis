@@ -1,0 +1,2353 @@
+---
+title: "Soil_Chambers_Comprehensive_Flux_stats_landpos"
+output: html_document
+date: "2025-10-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#"Soil_Chamber_EnviroVariable_Figs" ##time is in AK daylight time** NEE/RECO/GPP are in gC/m2/s; FCO2 and FCH4 are in gC/m2/s, flux_CO2 is in umol/m2/s; flux_CH4 is in nano mol/m2/s
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load libraries 
+```{r, include=FALSE}
+rm(list= ls())
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(openair)
+library(plotrix)
+library(signal)
+library(svMisc)
+library(zoo)
+library(stringr)
+library(plyr)
+library(viridis)
+library(lubridate)
+library(tidyverse)
+library(gridExtra)
+library(plotly)
+library(RColorBrewer)
+library(pracma)
+library(dplyr)
+library(openair)
+library(nlme)
+library(lme4)
+
+Sys.setenv(TZ='UTC')
+
+```
+
+#Load filtered and merged df of soil chamber fluxes, moisture, temp (I upload multiples but only using df_NEE_RECO2 and df_NEE_RECO2_GPP for analysis below)
+```{r}
+# #filtered for p<0.05; units umol/m2/s or nmol/m2/s
+# df_soilchambers_filtered = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_filtered_soil_chamber_fluxes_2017to2019.csv')
+# 
+# #fluxes and moisture/temp df merged; FCO2 in units g/m2/s
+# df_fulljoin = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+# *****************Use these two, above are just extra if needed for looking at*********************
+
+#used transparent and opaque chambers to identify NEE and RECO, then merged back together 
+df_NEE_RECO2 = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_fulljoin_soilchamber_fluxes_moisttemp_2017to2019.csv')
+
+#calculated GPP (NEE - Reco)
+df_NEE_RECO2_GPP = fread('C:/Users/kkent/Documents/Council Data/Soil Chambers_Council/council_NEE_RECO2_GPP_2017to2019.csv')
+
+
+
+```
+
+
+#Re-shape df into long format 
+```{r}
+library(tidyr)
+
+#Remove the NAs 
+library(dplyr)
+
+# Reshape the dataframe to long format, choose variables of interest 
+df_wide <- df_NEE_RECO2_GPP %>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, time, date, VWC, air_temp, flux_CO2, flux_CH4, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, thawdepth) %>%
+  #remove NAs
+   filter(complete.cases( VWC, air_temp, flux_CO2, flux_CH4, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, thawdepth)) #exclude soil temp 15 cm since most of it is NA 
+
+#make NEE, GPP, RECO, and FCH4 all g/m2/s -> umol/m2/s
+df_wide$NEE_umol <- df_wide$NEE * 1/12 * 1000000
+df_wide$GPP_umol <- df_wide$GPP * 1/12 * 1000000
+df_wide$RECO_umol <- df_wide$RECO * 1/12 * 1000000
+df_wide$FCH4_umol <- df_wide$FCH4 * 1/12 * 1000000
+
+
+#Filter out inundated slope with only n=2
+# Filter out combinations with n < 5
+# This removes slope-inundated (slope-Y)
+df_wide_filtered <- df_wide %>%
+  group_by(landscape_position, inundated) %>%
+ filter(flux_CH4 <= 400) %>% #filter out the outlier of flux CH4 = 600 nmol, occurs only one time in 2019 and rest are < 400 
+  filter(n() >= 5) %>%
+  ungroup()
+
+
+#================ DF LONG ============================================
+df_long2 <- df_wide_filtered %>%
+  select(plot_ID, plot_type, landscape_position, measurement_date, time, date, VWC, air_temp, flux_CO2, flux_CH4, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, thawdepth) %>%
+  #remove NAs
+   filter(complete.cases( VWC, air_temp, flux_CO2, flux_CH4, FCH4, NEE, RECO, GPP, inundated, soil_temp_10_cm, thawdepth)) %>% #exclude soil temp 15 cm since most of it is NA 
+  pivot_longer(cols = c(NEE, RECO, GPP, FCH4),
+               names_to = "flux_type",
+               values_to = "flux_value")
+
+#df_long2$FCH4_umol <- df_long2$FCH4 * 1/12 * 1000000
+df_long2$flux_umol <- df_long2$flux_value * 1/12 * 1000000
+
+
+```
+
+
+#looking at variables  across landscape positions & inundation
+```{r}
+
+ggplot(df_long2, aes(x = landscape_position, y = flux_umol, color = flux_type)) +
+  geom_boxplot(position = "dodge") +
+  stat_summary(fun = mean, geom = "point", position = position_dodge(0.8), shape = 23, size = 4)+
+    facet_wrap(~inundated) +
+  labs(title = "Observed NEE by Land pos",
+       x = "Landscape Position",
+       y = "NEE (flux_value)") +
+  theme_bw()
+
+ggplot(df_long2, aes(x = landscape_position, y = flux_umol, fill = flux_type)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    shape = 23,
+    size = 4,
+    position = position_dodge(0.8)  # same dodge width as boxplot
+  ) +
+  labs(
+    title = "Observed NEE by Landscape Position",
+    x = "Landscape Position",
+    y = "Flux Value (umol/m2.s)",
+    fill = "Flux Type"
+  ) +
+  theme_bw()
+
+#filter(flux_value >= -6.5 & flux_value <= 6.5)
+
+
+ggplot(df_long2 %>%
+         filter(flux_umol >= -6.5 & flux_umol <= 6.5), 
+       aes(x = landscape_position, y = flux_umol, fill = flux_type)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    shape = 23,
+    size = 4,
+    position = position_dodge(0.8)  # same dodge width as boxplot
+  ) +
+  labs(
+    title = "Observed NEE by Landscape Position",
+    x = "Landscape Position",
+    y = "Flux Value (umol/m2.s)",
+    fill = "Flux Type"
+  ) +
+  theme_bw()
+```
+#NEE, GPP, RECO
+
+#Comprehensive stats (streamlined code with help from Claude)
+```{r}
+
+# FLUX ANALYSIS: LANDSCAPE POSITION DIFFERENCES
+
+# This script tests whether CO2 and CH4 fluxes differ among
+# landscape positions (lowland, slope, upland)
+# 
+# Fluxes analyzed:
+# - RECO (Ecosystem Respiration) in µmol/m²/s
+# - GPP (Gross Primary Production) in µmol/m²/s
+# - NEE (Net Ecosystem Exchange) in µmol/m²/s
+# - FCH4 (Methane Flux) in µmol/m²/s
+
+
+library(dplyr)      # For data manipulation
+library(ggplot2)    # For creating plots
+library(car)        # For Levene's test
+library(FSA)        # For Dunn's test
+library(gridExtra)  # For combining plots
+library(grid)       # For textGrob
+library(knitr)      # For formatted tables
+
+# ===================================================================
+# STEP 1: CHECK SAMPLE SIZES AND FILTER DATA
+# ===================================================================
+
+# STEP 1: SAMPLE SIZE CHECK AND FILTERING 
+
+
+# Check sample sizes by landscape position × inundation
+cat("Sample sizes by landscape position × inundation:\n")
+sample_sizes_combo_flux <- df_wide_filtered %>%
+  group_by(landscape_position, inundated) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  arrange(landscape_position, inundated)
+
+print(sample_sizes_combo_flux)
+cat("\n")
+
+# Filter out combinations with n < 5
+# This removes slope-inundated (slope-Y)
+# df_wide_filtered <- df_wide %>%
+#   group_by(landscape_position, inundated) %>%
+#   filter(flux_CH4 <= 400) %>%
+#   filter(n() >= 5) %>%
+#   ungroup()
+
+# Check what was excluded
+excluded_combos_flux <- sample_sizes_combo_flux %>%
+  filter(n < 5)
+
+if(nrow(excluded_combos_flux) > 0) {
+  cat("⚠ EXCLUDED combinations (n < 5):\n")
+  print(excluded_combos_flux)
+  cat("\n")
+} else {
+  cat("✓ No combinations excluded (all n >= 5)\n\n")
+}
+
+cat("Original sample size:", nrow(df_wide), "\n")
+cat("Filtered sample size:", nrow(df_wide_filtered), "\n")
+cat("Observations removed:", nrow(df_wide) - nrow(df_wide_filtered), "\n\n")
+
+# Sample sizes by landscape position after filtering
+sample_sizes_flux <- df_wide_filtered %>%
+  group_by(landscape_position) %>%
+  summarise(n = n()) %>%
+  arrange(landscape_position)
+
+cat("Sample sizes by landscape position (after filtering):\n")
+print(sample_sizes_flux)
+cat("\n")
+
+# ===================================================================
+# STEP 2: TEST ASSUMPTIONS WITH QQ PLOTS OF RESIDUALS
+# ===================================================================
+
+
+# STEP 2: TEST STATISTICAL ASSUMPTIONS (RESIDUALS)   
+
+
+# Define flux variables (using umol versions)
+flux_vars <- c("RECO_umol", "GPP_umol", "NEE_umol", "FCH4_umol")
+
+# Create readable names
+flux_names <- c("Ecosystem Respiration (RECO)", 
+                "Gross Primary Production (GPP)", 
+                "Net Ecosystem Exchange (NEE)", 
+                "Methane Flux (FCH4)")
+
+# Short names for tables
+flux_short <- c("RECO", "GPP", "NEE", "FCH4")
+
+# Create assumption results table
+assumption_results_flux <- data.frame(
+  Variable = flux_names,
+  Shapiro_p = NA,
+  Levene_p = NA,
+  Normal = NA,
+  Homogeneous = NA,
+  Recommended_Test = NA
+)
+
+# -------------------------------------------------------------------
+# Create QQ plots for RESIDUALS (correct approach)
+# -------------------------------------------------------------------
+
+qq_flux_list <- list()
+
+for(i in 1:length(flux_vars)) {
+  
+  var <- flux_vars[i]
+  var_label <- flux_names[i]
+  
+  # Fit ANOVA model
+  formula_str <- paste(var, "~ landscape_position")
+  model <- aov(as.formula(formula_str), data = df_wide_filtered)
+  
+  # Extract residuals from the model
+  residuals_data <- data.frame(residuals = residuals(model))
+  
+  # Create QQ plot of RESIDUALS (not raw data)
+  qq_plot <- ggplot(residuals_data, aes(sample = residuals)) +
+    geom_qq(alpha = 0.5, color = "darkgreen") +
+    geom_qq_line(color = "red", linewidth = 1) +
+    labs(
+      title = var_label,
+      subtitle = "Model Residuals",
+      x = "Theoretical Quantiles",
+      y = "Residual Quantiles"
+    ) +
+    theme_bw() +
+    theme(
+      plot.title = element_text(size = 11, face = "bold"),
+      plot.subtitle = element_text(size = 9),
+      axis.title = element_text(size = 9)
+    )
+  
+  qq_flux_list[[i]] <- qq_plot
+}
+
+# Combine QQ plots
+combined_qq_flux <- grid.arrange(
+  grobs = qq_flux_list,
+  ncol = 2,
+  nrow = 2,
+  top = textGrob("QQ Plots: Normality of Model Residuals (Correct for ANOVA)", 
+                 gp = gpar(fontsize = 14, fontface = "bold"))
+)
+
+combined_qq_flux
+
+# Save QQ plots (commented out)
+# ggsave("qq_plots_flux_residuals.png", 
+#        combined_qq_flux,
+#        width = 10, 
+#        height = 8, 
+#        dpi = 300)
+
+# -------------------------------------------------------------------
+# Run formal statistical tests on RESIDUALS
+# -------------------------------------------------------------------
+
+for(i in 1:length(flux_vars)) {
+  
+  var <- flux_vars[i]
+  var_label <- flux_names[i]
+  
+  cat("\n──────────────────────────────────────────────────────────────\n")
+  cat("Testing assumptions for:", var_label, "\n")
+  cat("──────────────────────────────────────────────────────────────\n")
+  
+  # STEP 1: Fit ANOVA model to get residuals
+  formula_str <- paste(var, "~ landscape_position")
+  model <- aov(as.formula(formula_str), data = df_wide_filtered)
+  
+  # Extract residuals from the model
+  residuals_vals <- residuals(model)
+  
+  # NORMALITY TEST: Shapiro-Wilk on RESIDUALS (correct approach)
+  if(length(residuals_vals) > 5000) {
+    cat("  Note: Sample size > 5000, testing random sample of 5000\n")
+    shapiro_result <- shapiro.test(sample(residuals_vals, 5000))
+  } else {
+    shapiro_result <- shapiro.test(residuals_vals)
+  }
+  
+  cat("\n1. NORMALITY TEST on RESIDUALS (Shapiro-Wilk):\n")
+  cat("   W statistic:", round(shapiro_result$statistic, 4), "\n")
+  cat("   p-value:", format.pval(shapiro_result$p.value, digits = 3), "\n")
+  
+  is_normal <- shapiro_result$p.value > 0.05
+  if(is_normal) {
+    cat("   ✓ Residuals appear NORMAL (p > 0.05)\n")
+  } else {
+    cat("   ✗ Residuals are NOT NORMAL (p <= 0.05)\n")
+  }
+  
+  # HOMOGENEITY OF VARIANCE TEST: Levene's Test
+  levene_result <- leveneTest(as.formula(formula_str), data = df_wide_filtered)
+  levene_p <- levene_result$`Pr(>F)`[1]
+  levene_f <- levene_result$`F value`[1]
+  
+  cat("\n2. HOMOGENEITY OF VARIANCE (Levene's Test):\n")
+  cat("   F statistic:", round(levene_f, 4), "\n")
+  cat("   p-value:", format.pval(levene_p, digits = 3), "\n")
+  
+  is_homogeneous <- levene_p > 0.05
+  if(is_homogeneous) {
+    cat("   ✓ Variances are HOMOGENEOUS (p > 0.05)\n")
+  } else {
+    cat("   ✗ Variances are NOT HOMOGENEOUS (p <= 0.05)\n")
+  }
+  
+  # RECOMMENDATION
+  cat("\n3. RECOMMENDATION:\n")
+  if(is_normal & is_homogeneous) {
+    cat("   → Use PARAMETRIC test (ANOVA with Tukey post-hoc)\n")
+    recommended <- "ANOVA"
+  } else {
+    cat("   → Use NON-PARAMETRIC test (Kruskal-Wallis with Dunn post-hoc)\n")
+    if(!is_normal) cat("      Reason: Residuals not normally distributed\n")
+    if(!is_homogeneous) cat("      Reason: Variances not homogeneous\n")
+    recommended <- "Kruskal-Wallis"
+  }
+  
+  # Store results
+  assumption_results_flux$Shapiro_p[i] <- shapiro_result$p.value
+  assumption_results_flux$Levene_p[i] <- levene_p
+  assumption_results_flux$Normal[i] <- is_normal
+  assumption_results_flux$Homogeneous[i] <- is_homogeneous
+  assumption_results_flux$Recommended_Test[i] <- recommended
+}
+
+# Display summary table
+
+# SUMMARY: ASSUMPTION TEST RESULTS    
+
+
+print(assumption_results_flux)
+
+# Save assumption results (commented out)
+# write.csv(assumption_results_flux, 
+#           "assumption_test_results_fluxes.csv", 
+#           row.names = FALSE)
+
+# ===================================================================
+# STEP 3: KRUSKAL-WALLIS TESTS
+# ===================================================================
+
+
+# STEP 3: KRUSKAL-WALLIS TESTS BY LANDSCAPE POSITION    
+
+# Testing: Do fluxes differ among lowland, slope, and upland?\n")
+# Method:  Kruskal-Wallis test (non-parametric ANOVA)\n")
+
+
+# Create results table
+kw_results_flux <- data.frame(
+  Variable = flux_short,
+  Chi_squared = NA,
+  df = NA,
+  p_value = NA,
+  Significant = NA
+)
+
+# Store Dunn's test results
+dunn_results_flux <- list()
+
+# Loop through each flux variable
+for(i in 1:length(flux_vars)) {
+  
+  var <- flux_vars[i]
+  var_label <- flux_names[i]
+  
+  cat("\n──────────────────────────────────────────────────────────────\n")
+  cat("Variable:", var_label, "\n")
+  cat("──────────────────────────────────────────────────────────────\n")
+  
+  # Run Kruskal-Wallis test
+  formula_str <- paste(var, "~ landscape_position")
+  kw_test <- kruskal.test(as.formula(formula_str), data = df_wide_filtered)
+  
+  # Extract results
+  chi_sq <- kw_test$statistic
+  df_val <- kw_test$parameter
+  p_val <- kw_test$p.value
+  
+  # Store results
+  kw_results_flux$Chi_squared[i] <- chi_sq
+  kw_results_flux$df[i] <- df_val
+  kw_results_flux$p_value[i] <- p_val
+  kw_results_flux$Significant[i] <- ifelse(p_val < 0.05, "YES", "NO")
+  
+  # Display results
+  cat("Kruskal-Wallis Test:\n")
+  cat("  χ² =", round(chi_sq, 3), "\n")
+  cat("  df =", df_val, "\n")
+  cat("  p-value =", format.pval(p_val, digits = 3), "\n")
+  
+  if(p_val < 0.05) {
+    cat("  ✓ SIGNIFICANT (p < 0.05)\n")
+    cat("  → At least one landscape position differs\n")
+  } else {
+    cat("  ✗ NOT SIGNIFICANT (p >= 0.05)\n")
+    cat("  → No evidence of differences among landscape positions\n")
+  }
+  
+  # If significant, run Dunn's post-hoc test
+  if(p_val < 0.05) {
+    cat("\n  ═══════════════════════════════════════════════════════════\n")
+    cat("  DUNN'S POST-HOC TEST FOR:", var_label, "\n")
+    cat("  ═══════════════════════════════════════════════════════════\n")
+    
+    dunn_test <- dunnTest(as.formula(formula_str), 
+                          data = df_wide_filtered, 
+                          method = "bh")
+    
+    # Store results
+    dunn_results_flux[[flux_short[i]]] <- dunn_test$res
+    
+    # Display pairwise comparisons
+    cat("\n  Pairwise Comparisons (Dunn's test with BH correction):\n\n")
+    dunn_table <- dunn_test$res %>%
+      mutate(
+        Z = round(Z, 3),
+        P.unadj = format.pval(P.unadj, digits = 3),
+        P.adj = format.pval(P.adj, digits = 3),
+        Sig = ifelse(P.adj < 0.05, "***", "ns")
+      )
+    print(dunn_table)
+    cat("\n  ═══════════════════════════════════════════════════════════\n")
+    
+    # Summarize significant differences
+    sig_pairs <- dunn_test$res %>% filter(P.adj < 0.05)
+    
+    if(nrow(sig_pairs) > 0) {
+      cat("\n  ✓ Significant pairwise differences (p < 0.05):\n")
+      for(j in 1:nrow(sig_pairs)) {
+        cat("     •", sig_pairs$Comparison[j], 
+            "(p =", round(sig_pairs$P.adj[j], 4), ")\n")
+      }
+    } else {
+      cat("\n  Note: Overall test significant but no pairwise differences\n")
+      cat("        after correction for multiple comparisons\n")
+    }
+    
+  } else {
+    cat("\n  (Skipping post-hoc test - overall test not significant)\n")
+    dunn_results_flux[[flux_short[i]]] <- NULL
+  }
+}
+
+# Display summary table
+
+cat("║  SUMMARY: KRUSKAL-WALLIS RESULTS FOR FLUXES  ║\n")
+
+
+print(kw_results_flux)
+
+# Save results (commented out)
+# write.csv(kw_results_flux, 
+#           "kruskal_wallis_flux_results.csv", 
+#           row.names = FALSE)
+
+# ===================================================================
+# STEP 4: DESCRIPTIVE STATISTICS
+# ===================================================================
+
+
+# STEP 4: DESCRIPTIVE STATISTICS BY LANDSCAPE POSITION 
+
+
+# Calculate means, SDs, and medians for each landscape position
+summary_flux <- df_wide_filtered %>%
+  group_by(landscape_position) %>%
+  summarise(
+    across(all_of(flux_vars), 
+           list(mean = ~mean(., na.rm = TRUE),
+                sd = ~sd(., na.rm = TRUE),
+                median = ~median(., na.rm = TRUE)),
+           .names = "{.col}_{.fn}"),
+    n = n()
+  )
+
+cat("Summary Statistics (µmol/m²/s):\n")
+print(summary_flux)
+
+# Save summary statistics (commented out)
+# write.csv(summary_flux, 
+#           "summary_stats_fluxes_landscape.csv", 
+#           row.names = FALSE)
+
+# Create a more readable summary table
+summary_flux_readable <- df_wide_filtered %>%
+  group_by(landscape_position) %>%
+  summarise(
+    RECO_mean = mean(RECO_umol, na.rm = TRUE),
+    RECO_sd = sd(RECO_umol, na.rm = TRUE),
+    GPP_mean = mean(GPP_umol, na.rm = TRUE),
+    GPP_sd = sd(GPP_umol, na.rm = TRUE),
+    NEE_mean = mean(NEE_umol, na.rm = TRUE),
+    NEE_sd = sd(NEE_umol, na.rm = TRUE),
+    FCH4_mean = mean(FCH4_umol, na.rm = TRUE),
+    FCH4_sd = sd(FCH4_umol, na.rm = TRUE),
+    n = n()
+  ) %>%
+  mutate(across(where(is.numeric), ~round(., 2)))
+
+cat("\n\nReadable Summary (Mean ± SD in µmol/m²/s):\n")
+print(summary_flux_readable)
+
+# ===================================================================
+# STEP 5: CREATE LETTER GROUPINGS FOR PLOTS
+# ===================================================================
+
+
+cat("║  STEP 5: LETTER GROUPINGS FOR PLOTTING ║\n")
+
+
+# Function to assign letters based on Dunn's test
+assign_flux_letters <- function(dunn_results, flux_name) {
+  
+  groups <- c("lowland", "slope", "upland")
+  
+  # If no significant results, all groups get same letter
+  if(is.null(dunn_results)) {
+    letters_df <- data.frame(
+      landscape_position = groups,
+      letters = rep("a", 3)
+    )
+    return(letters_df)
+  }
+  
+  # Get significant pairs
+  sig_pairs <- dunn_results %>% filter(P.adj < 0.05)
+  
+  # If no significant pairwise differences, all get same letter
+  if(nrow(sig_pairs) == 0) {
+    letters_df <- data.frame(
+      landscape_position = groups,
+      letters = rep("a", 3)
+    )
+    return(letters_df)
+  }
+  
+  # Simple letter assignment logic
+  letter_assignment <- data.frame(
+    landscape_position = groups,
+    letters = c("", "", ""),
+    stringsAsFactors = FALSE
+  )
+  
+  # Start with first group
+  letter_assignment$letters[1] <- "a"
+  current_letter <- 1
+  
+  # Assign letters based on pairwise comparisons
+  for(i in 2:length(groups)) {
+    # Check if current group differs from any previous group
+    differs <- FALSE
+    for(j in 1:(i-1)) {
+      comp1 <- paste(groups[j], groups[i], sep = " - ")
+      comp2 <- paste(groups[i], groups[j], sep = " - ")
+      if(any(sig_pairs$Comparison %in% c(comp1, comp2))) {
+        differs <- TRUE
+        break
+      }
+    }
+    
+    if(differs) {
+      current_letter <- current_letter + 1
+      letter_assignment$letters[i] <- letters[current_letter]
+    } else {
+      letter_assignment$letters[i] <- letter_assignment$letters[i-1]
+    }
+  }
+  
+  return(letter_assignment)
+}
+
+# Create letter assignments for each flux
+cat("Letter assignments for each flux:\n")
+cat("(Groups with same letter are not significantly different)\n\n")
+
+flux_letters_list <- list()
+
+for(i in 1:length(flux_vars)) {
+  var_name <- flux_short[i]
+  
+  cat(var_name, ":\n")
+  
+  letters_df <- assign_flux_letters(dunn_results_flux[[var_name]], var_name)
+  flux_letters_list[[var_name]] <- letters_df
+  
+  print(letters_df)
+  cat("\n")
+}
+
+# ===================================================================
+# STEP 6: CREATE EXAMPLE BOXPLOTS WITH LETTERS
+# ===================================================================
+
+
+cat("║  STEP 6: EXAMPLE PLOTS WITH SIGNIFICANCE LETTERS  ║\n")
+
+
+# Function to create boxplot with letters
+create_flux_plot <- function(data, var, var_label, letters_df, y_pos) {
+  
+  # Add y position to letters dataframe
+  letters_df$y_position <- y_pos
+  
+  # Create plot
+  p <- ggplot(data, aes(x = landscape_position, y = .data[[var]])) +
+    geom_boxplot() +
+    stat_summary(fun = mean, geom = "point", shape = 23, size = 4) +
+    geom_text(data = letters_df,
+              aes(x = landscape_position, y = y_position, label = letters),
+              fontface = "bold",
+              size = 5) +
+    labs(
+      title = var_label,
+      x = "Landscape Position",
+      y = "Flux (µmol/m²/s)"
+    ) +
+    theme_bw() +
+    theme(
+      plot.title = element_text(face = "bold", size = 11)
+    )
+  
+  return(p)
+}
+
+# Create plots for each flux
+
+# RECO plot
+reco_plot <- create_flux_plot(
+  data = df_wide_filtered,
+  var = "RECO_umol",
+  var_label = "Ecosystem Respiration (RECO)",
+  letters_df = flux_letters_list[["RECO"]],
+  y_pos = max(df_wide_filtered$RECO_umol, na.rm = TRUE) * 1.1
+)
+
+# GPP plot
+gpp_plot <- create_flux_plot(
+  data = df_wide_filtered,
+  var = "GPP_umol",
+  var_label = "Gross Primary Production (GPP)",
+  letters_df = flux_letters_list[["GPP"]],
+  y_pos = max(df_wide_filtered$GPP_umol, na.rm = TRUE) * 1.1
+)
+
+# NEE plot
+nee_plot <- create_flux_plot(
+  data = df_wide_filtered,
+  var = "NEE_umol",
+  var_label = "Net Ecosystem Exchange (NEE)",
+  letters_df = flux_letters_list[["NEE"]],
+  y_pos = max(df_wide_filtered$NEE_umol, na.rm = TRUE) * 1.1
+)
+
+# FCH4 plot
+fch4_plot <- create_flux_plot(
+  data = df_wide_filtered,
+  var = "FCH4_umol",
+  var_label = "Methane Flux (FCH4)",
+  letters_df = flux_letters_list[["FCH4"]],
+  y_pos = max(df_wide_filtered$FCH4_umol, na.rm = TRUE) * 1.1
+)
+
+# Display individual plots
+print(reco_plot)
+print(gpp_plot)
+print(nee_plot)
+print(fch4_plot)
+
+# Combine all flux plots
+combined_flux_plots <- grid.arrange(
+  reco_plot + labs(title = NULL),
+  gpp_plot + labs(title = NULL),
+  nee_plot + labs(title = NULL),
+  fch4_plot + labs(title = NULL),
+  ncol = 2,
+  nrow = 2,
+  top = textGrob("CO₂ and CH₄ Fluxes by Landscape Position", 
+                 gp = gpar(fontsize = 14, fontface = "bold"))
+)
+
+combined_flux_plots
+
+# Save plots (commented out)
+# ggsave("flux_plots_landscape_combined.png",
+#        combined_flux_plots,
+#        width = 10,
+#        height = 10,
+#        dpi = 300)
+
+
+```
+
+#Save summary stats of C fluxes by landpos 
+```{r}
+summary_flux_readable
+
+library(writexl)
+write_xlsx(summary_flux_readable, "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/soilchamber_Flux_means_landpos.xlsx")
+```
+
+#FCH4
+
+# Comprehensive stats - landpos x inundation 
+```{r}
+# ===================================================================
+# FLUX BREAKDOWN ANALYSIS: LANDSCAPE × INUNDATION INTERACTIONS
+# ===================================================================
+# This script breaks down the landscape × inundation interaction for fluxes:
+# 1) Within each inundation status: do landscape positions differ?
+# 2) Within each landscape position: does inundation matter?
+# 
+# Fluxes: RECO, GPP, NEE, FCH4 (all in µmol/m²/s)
+# Note: Slope-inundated (n=2) excluded from all analyses
+# All analyses test assumptions on model RESIDUALS
+# ===================================================================
+
+library(dplyr)
+library(FSA)        # For Dunn's test
+library(ggplot2)
+library(car)        # For Levene's test
+library(gridExtra)
+library(grid)
+
+# Define variables
+flux_vars <- c("RECO_umol", "GPP_umol", "NEE_umol", "FCH4_umol")
+flux_names <- c("Ecosystem Respiration (RECO)", 
+                "Gross Primary Production (GPP)", 
+                "Net Ecosystem Exchange (NEE)", 
+                "Methane Flux (FCH4)")
+flux_short <- c("RECO", "GPP", "NEE", "FCH4")
+
+# ===================================================================
+# If not already done, FILTER OUT SLOPE-INUNDATED (n=2)
+# ===================================================================
+
+
+cat("║  FILTERING DATA                                              ║\n")
+
+
+# Remove slope-inundated combinations throughout
+df_wide_filtered_flux <- df_wide_filtered %>%
+  filter(!(landscape_position == "slope" & inundated == "Y"))
+
+# cat("Original sample size:", nrow(df_wide), "\n")
+# cat("Filtered sample size:", nrow(df_wide_filtered_flux), "\n")
+# cat("Observations removed (slope-Y):", nrow(df_wide) - nrow(df_wide_filtered_flux), "\n\n")
+
+# ===================================================================
+# ANALYSIS 1: INUNDATED SITES ONLY
+# ===================================================================
+
+
+cat("║  ANALYSIS 1: INUNDATED SITES ONLY                            ║\n")
+cat("║  Testing: Do landscape positions differ in inundated areas?  ║\n")
+
+
+df_inundated_flux <- df_wide_filtered_flux %>%
+  filter(inundated == "Y")
+
+cat("Sample sizes for INUNDATED sites:\n")
+inundated_n_flux <- df_inundated_flux %>%
+  count(landscape_position) %>%
+  arrange(landscape_position)
+print(inundated_n_flux)
+cat("\n")
+
+for(i in 1:length(flux_vars)) {
+  var <- flux_vars[i]
+  var_label <- flux_names[i]
+  
+  cat("──────────────────────────────────────────────────────────────\n")
+  cat("Variable:", var_label, "\n")
+  cat("──────────────────────────────────────────────────────────────\n")
+  
+  n_groups <- df_inundated_flux %>% 
+    distinct(landscape_position) %>% 
+    nrow()
+  
+  if(n_groups < 2) {
+    cat("⚠ Not enough groups to test\n\n")
+    next
+  }
+  
+  # Test assumptions on RESIDUALS
+  cat("\nTesting assumptions on model residuals:\n")
+  formula_str <- paste(var, "~ landscape_position")
+  model <- aov(as.formula(formula_str), data = df_inundated_flux)
+  residuals_vals <- residuals(model)
+  
+  # Shapiro-Wilk on residuals
+  if(length(residuals_vals) > 5000) {
+    shapiro_result <- shapiro.test(sample(residuals_vals, 5000))
+  } else {
+    shapiro_result <- shapiro.test(residuals_vals)
+  }
+  
+  cat("  Shapiro-Wilk (residuals): p =", format.pval(shapiro_result$p.value, digits = 3))
+  cat(ifelse(shapiro_result$p.value > 0.05, " ✓ Normal\n", " ✗ Not normal\n"))
+  
+  # Levene's test
+  levene_result <- leveneTest(as.formula(formula_str), data = df_inundated_flux)
+  levene_p <- levene_result$`Pr(>F)`[1]
+  
+  cat("  Levene's test: p =", format.pval(levene_p, digits = 3))
+  cat(ifelse(levene_p > 0.05, " ✓ Homogeneous\n", " ✗ Not homogeneous\n"))
+  
+  if(shapiro_result$p.value > 0.05 & levene_p > 0.05) {
+    cat("  → Could use", ifelse(n_groups == 2, "t-test", "ANOVA"), 
+        ", but using Kruskal-Wallis for consistency\n\n")
+  } else {
+    cat("  → Using Kruskal-Wallis (non-parametric)\n\n")
+  }
+  
+  # Kruskal-Wallis test
+  kw_test <- kruskal.test(as.formula(formula_str), data = df_inundated_flux)
+  
+  cat("Kruskal-Wallis: χ² =", round(kw_test$statistic, 3), 
+      ", p =", format.pval(kw_test$p.value, digits = 3), "\n")
+  
+  if(kw_test$p.value < 0.05 && n_groups > 2) {
+    cat("✓ Significant! Running Dunn's post-hoc...\n\n")
+    dunn_test <- dunnTest(as.formula(formula_str), 
+                          data = df_inundated_flux, 
+                          method = "bh")
+    print(dunn_test$res)
+  } else if(kw_test$p.value < 0.05) {
+    cat("✓ Significant difference between the two groups\n")
+  } else {
+    cat("✗ No significant differences\n")
+  }
+  cat("\n")
+}
+
+# ===================================================================
+# ANALYSIS 2: NON-INUNDATED SITES ONLY
+# ===================================================================
+
+
+cat("║  ANALYSIS 2: NON-INUNDATED SITES ONLY                        ║\n")
+cat("║  Testing: Do landscape positions differ in dry areas?        ║\n")
+
+
+df_not_inundated_flux <- df_wide_filtered_flux %>%
+  filter(inundated == "N")
+
+cat("Sample sizes for NON-INUNDATED sites:\n")
+not_inundated_n_flux <- df_not_inundated_flux %>%
+  count(landscape_position) %>%
+  arrange(landscape_position)
+print(not_inundated_n_flux)
+cat("\n")
+
+for(i in 1:length(flux_vars)) {
+  var <- flux_vars[i]
+  var_label <- flux_names[i]
+  
+  cat("──────────────────────────────────────────────────────────────\n")
+  cat("Variable:", var_label, "\n")
+  cat("──────────────────────────────────────────────────────────────\n")
+  
+  # Test assumptions on RESIDUALS
+  cat("\nTesting assumptions on model residuals:\n")
+  formula_str <- paste(var, "~ landscape_position")
+  model <- aov(as.formula(formula_str), data = df_not_inundated_flux)
+  residuals_vals <- residuals(model)
+  
+  # Shapiro-Wilk on residuals
+  if(length(residuals_vals) > 5000) {
+    shapiro_result <- shapiro.test(sample(residuals_vals, 5000))
+  } else {
+    shapiro_result <- shapiro.test(residuals_vals)
+  }
+  
+  cat("  Shapiro-Wilk (residuals): p =", format.pval(shapiro_result$p.value, digits = 3))
+  cat(ifelse(shapiro_result$p.value > 0.05, " ✓ Normal\n", " ✗ Not normal\n"))
+  
+  # Levene's test
+  levene_result <- leveneTest(as.formula(formula_str), data = df_not_inundated_flux)
+  levene_p <- levene_result$`Pr(>F)`[1]
+  
+  cat("  Levene's test: p =", format.pval(levene_p, digits = 3))
+  cat(ifelse(levene_p > 0.05, " ✓ Homogeneous\n", " ✗ Not homogeneous\n"))
+  
+  if(shapiro_result$p.value > 0.05 & levene_p > 0.05) {
+    cat("  → Could use ANOVA, but using Kruskal-Wallis for consistency\n\n")
+  } else {
+    cat("  → Using Kruskal-Wallis (non-parametric)\n\n")
+  }
+  
+  # Kruskal-Wallis test
+  kw_test <- kruskal.test(as.formula(formula_str), data = df_not_inundated_flux)
+  
+  cat("Kruskal-Wallis: χ² =", round(kw_test$statistic, 3), 
+      ", p =", format.pval(kw_test$p.value, digits = 3), "\n")
+  
+  if(kw_test$p.value < 0.05) {
+    cat("✓ Significant! Running Dunn's post-hoc...\n\n")
+    dunn_test <- dunnTest(as.formula(formula_str), 
+                          data = df_not_inundated_flux, 
+                          method = "bh")
+    print(dunn_test$res)
+  } else {
+    cat("✗ No significant differences\n")
+  }
+  cat("\n")
+}
+
+# ===================================================================
+# ANALYSIS 3: LOWLAND SITES ONLY
+# ===================================================================
+
+
+cat("║  ANALYSIS 3: LOWLAND SITES ONLY                              ║\n")
+cat("║  Testing: Does inundation affect lowland fluxes?             ║\n")
+
+
+df_lowland_flux <- df_wide_filtered_flux %>%
+  filter(landscape_position == "lowland")
+
+cat("Sample sizes for LOWLAND sites:\n")
+lowland_n_flux <- df_lowland_flux %>%
+  count(inundated) %>%
+  arrange(inundated)
+print(lowland_n_flux)
+cat("\n")
+
+for(i in 1:length(flux_vars)) {
+  var <- flux_vars[i]
+  var_label <- flux_names[i]
+  
+  cat("──────────────────────────────────────────────────────────────\n")
+  cat("Variable:", var_label, "\n")
+  cat("──────────────────────────────────────────────────────────────\n")
+  
+  # Test assumptions on RESIDUALS
+  cat("\nTesting assumptions on model residuals:\n")
+  formula_str <- paste(var, "~ inundated")
+  model <- aov(as.formula(formula_str), data = df_lowland_flux)
+  residuals_vals <- residuals(model)
+  
+  # Shapiro-Wilk on residuals
+  if(length(residuals_vals) > 5000) {
+    shapiro_result <- shapiro.test(sample(residuals_vals, 5000))
+  } else {
+    shapiro_result <- shapiro.test(residuals_vals)
+  }
+  
+  cat("  Shapiro-Wilk (residuals): p =", format.pval(shapiro_result$p.value, digits = 3))
+  cat(ifelse(shapiro_result$p.value > 0.05, " ✓ Normal\n", " ✗ Not normal\n"))
+  
+  # Levene's test
+  levene_result <- leveneTest(as.formula(formula_str), data = df_lowland_flux)
+  levene_p <- levene_result$`Pr(>F)`[1]
+  
+  cat("  Levene's test: p =", format.pval(levene_p, digits = 3))
+  cat(ifelse(levene_p > 0.05, " ✓ Homogeneous\n", " ✗ Not homogeneous\n"))
+  
+  if(shapiro_result$p.value > 0.05 & levene_p > 0.05) {
+    cat("  → Could use t-test, but using Wilcoxon for consistency\n\n")
+  } else {
+    cat("  → Using Wilcoxon (non-parametric)\n\n")
+  }
+  
+  # Wilcoxon rank-sum test
+  wilcox_test <- wilcox.test(as.formula(formula_str), data = df_lowland_flux)
+  
+  cat("Wilcoxon rank-sum test:\n")
+  cat("  W =", wilcox_test$statistic, "\n")
+  cat("  p =", format.pval(wilcox_test$p.value, digits = 3), "\n")
+  
+  # Calculate medians
+  medians <- df_lowland_flux %>%
+    group_by(inundated) %>%
+    summarise(median = median(.data[[var]], na.rm = TRUE))
+  
+  cat("\n  Medians:\n")
+  print(medians)
+  
+  if(wilcox_test$p.value < 0.05) {
+    cat("\n  ✓ SIGNIFICANT difference between inundated and non-inundated lowlands\n")
+    
+    inundated_median <- medians$median[medians$inundated == "Y"]
+    not_inundated_median <- medians$median[medians$inundated == "N"]
+    
+    if(inundated_median > not_inundated_median) {
+      cat("  → Inundated lowlands have HIGHER flux values\n")
+    } else {
+      cat("  → Inundated lowlands have LOWER flux values\n")
+    }
+  } else {
+    cat("\n  ✗ No significant difference\n")
+  }
+  cat("\n")
+}
+
+# ===================================================================
+# ANALYSIS 4: UPLAND SITES ONLY
+# ===================================================================
+
+
+cat("║  ANALYSIS 4: UPLAND SITES ONLY                               ║\n")
+cat("║  Testing: Does inundation affect upland fluxes?              ║\n")
+
+
+df_upland_flux <- df_wide_filtered_flux %>%
+  filter(landscape_position == "upland")
+
+cat("Sample sizes for UPLAND sites:\n")
+upland_n_flux <- df_upland_flux %>%
+  count(inundated) %>%
+  arrange(inundated)
+print(upland_n_flux)
+cat("\n")
+
+for(i in 1:length(flux_vars)) {
+  var <- flux_vars[i]
+  var_label <- flux_names[i]
+  
+  cat("──────────────────────────────────────────────────────────────\n")
+  cat("Variable:", var_label, "\n")
+  cat("──────────────────────────────────────────────────────────────\n")
+  
+  # Test assumptions on RESIDUALS
+  cat("\nTesting assumptions on model residuals:\n")
+  formula_str <- paste(var, "~ inundated")
+  model <- aov(as.formula(formula_str), data = df_upland_flux)
+  residuals_vals <- residuals(model)
+  
+  # Shapiro-Wilk on residuals
+  if(length(residuals_vals) > 5000) {
+    shapiro_result <- shapiro.test(sample(residuals_vals, 5000))
+  } else {
+    shapiro_result <- shapiro.test(residuals_vals)
+  }
+  
+  cat("  Shapiro-Wilk (residuals): p =", format.pval(shapiro_result$p.value, digits = 3))
+  cat(ifelse(shapiro_result$p.value > 0.05, " ✓ Normal\n", " ✗ Not normal\n"))
+  
+  # Levene's test
+  levene_result <- leveneTest(as.formula(formula_str), data = df_upland_flux)
+  levene_p <- levene_result$`Pr(>F)`[1]
+  
+  cat("  Levene's test: p =", format.pval(levene_p, digits = 3))
+  cat(ifelse(levene_p > 0.05, " ✓ Homogeneous\n", " ✗ Not homogeneous\n"))
+  
+  if(shapiro_result$p.value > 0.05 & levene_p > 0.05) {
+    cat("  → Could use t-test, but using Wilcoxon for consistency\n\n")
+  } else {
+    cat("  → Using Wilcoxon (non-parametric)\n\n")
+  }
+  
+  # Wilcoxon rank-sum test
+  wilcox_test <- wilcox.test(as.formula(formula_str), data = df_upland_flux)
+  
+  cat("Wilcoxon rank-sum test:\n")
+  cat("  W =", wilcox_test$statistic, "\n")
+  cat("  p =", format.pval(wilcox_test$p.value, digits = 3), "\n")
+  
+  # Calculate medians
+  medians <- df_upland_flux %>%
+    group_by(inundated) %>%
+    summarise(median = median(.data[[var]], na.rm = TRUE))
+  
+  cat("\n  Medians:\n")
+  print(medians)
+  
+  if(wilcox_test$p.value < 0.05) {
+    cat("\n  ✓ SIGNIFICANT difference between inundated and non-inundated uplands\n")
+    
+    inundated_median <- medians$median[medians$inundated == "Y"]
+    not_inundated_median <- medians$median[medians$inundated == "N"]
+    
+    if(inundated_median > not_inundated_median) {
+      cat("  → Inundated uplands have HIGHER flux values\n")
+    } else {
+      cat("  → Inundated uplands have LOWER flux values\n")
+    }
+  } else {
+    cat("\n  ✗ No significant difference\n")
+  }
+  cat("\n")
+}
+
+# ===================================================================
+# SUMMARY
+# ===================================================================
+
+
+#SUMMARY: FLUX BREAKDOWN ANALYSIS RESULTS  
+
+
+#"What was tested
+
+# All analyses exclude slope-inundated (n=2)
+#  Analyses 1 & 2: Kruskal-Wallis for landscape comparisons
+# Analyses 3 & 4: Wilcoxon for inundation comparisons
+
+
+
+```
+#Summary by landpos only (regardless of inun)
+```{r}
+# Calculate detailed statistics for each landscape × inundation combination
+summary_table_landpos <- df_flux_summary2 %>% 
+  group_by(landscape_position) %>%
+  summarise(
+    n = n(),
+    
+    # RECO statistics
+    RECO_mean = mean(RECO_umol, na.rm = TRUE),
+    RECO_se = sd(RECO_umol, na.rm = TRUE) / sqrt(n()),
+
+    
+    # GPP statistics
+    GPP_mean = mean(GPP_umol, na.rm = TRUE),
+    GPP_se = sd(GPP_umol, na.rm = TRUE) / sqrt(n()),
+
+    
+    # NEE statistics
+    NEE_mean = mean(NEE_umol, na.rm = TRUE),
+    NEE_se = sd(NEE_umol, na.rm = TRUE) / sqrt(n()),
+
+    
+    # FCH4 statistics - umol 
+    FCH4_mean = mean(FCH4_umol, na.rm = TRUE),
+    FCH4_se = sd(FCH4_umol, na.rm = TRUE) / sqrt(n()),
+
+    
+    # flux_CH4 statistics - nmol 
+    flux_CH4_mean = mean(flux_CH4, na.rm = TRUE),
+    flux_CH4_se = sd(flux_CH4, na.rm = TRUE) / sqrt(n()),
+
+    
+    .groups = 'drop'
+  ) %>%
+
+  # Round all numeric columns to 2 decimal places
+  mutate(across(where(is.numeric) & !n, ~round(., 2)))
+
+
+print(summary_table_landpos)
+
+
+```
+
+
+
+#Summary stats for fluxes ~  lanpos x inun
+```{r}
+library(dplyr)
+library(knitr)      # For kable() formatting
+library(kableExtra) # For enhanced table styling (optional)
+
+# Filter out slope-inundated (n<5)
+df_flux_summary <- df_wide %>%
+  filter(!(landscape_position == "slope" & inundated == "Y"))
+
+# Filter out slope-inundated (n<5) & the outlier of flux_CO2 > 400 (outlier is at 600, single point in upland non-inun)
+df_flux_summary2 <- df_wide %>%
+  filter(!(landscape_position == "slope" & inundated == "Y")) %>%
+  filter(flux_CH4 <= 400)
+
+cat("Creating comprehensive summary statistics table...\n\n")
+
+# Calculate detailed statistics for each landscape × inundation combination
+summary_table <- df_flux_summary2 %>% 
+  group_by(landscape_position, inundated) %>%
+  summarise(
+    n = n(),
+    
+    # RECO statistics
+    RECO_mean = mean(RECO_umol, na.rm = TRUE),
+    RECO_sd = sd(RECO_umol, na.rm = TRUE),
+    RECO_se = sd(RECO_umol, na.rm = TRUE) / sqrt(n()),
+    RECO_median = median(RECO_umol, na.rm = TRUE),
+    RECO_min = min(RECO_umol, na.rm = TRUE),
+    RECO_max = max(RECO_umol, na.rm = TRUE),
+    
+    # GPP statistics
+    GPP_mean = mean(GPP_umol, na.rm = TRUE),
+    GPP_sd = sd(GPP_umol, na.rm = TRUE),
+    GPP_se = sd(GPP_umol, na.rm = TRUE) / sqrt(n()),
+    GPP_median = median(GPP_umol, na.rm = TRUE),
+    GPP_min = min(GPP_umol, na.rm = TRUE),
+    GPP_max = max(GPP_umol, na.rm = TRUE),
+    
+    # NEE statistics
+    NEE_mean = mean(NEE_umol, na.rm = TRUE),
+    NEE_sd = sd(NEE_umol, na.rm = TRUE),
+    NEE_se = sd(NEE_umol, na.rm = TRUE) / sqrt(n()),
+    NEE_median = median(NEE_umol, na.rm = TRUE),
+    NEE_min = min(NEE_umol, na.rm = TRUE),
+    NEE_max = max(NEE_umol, na.rm = TRUE),
+    
+    # FCH4 statistics - umol 
+    FCH4_mean = mean(FCH4_umol, na.rm = TRUE),
+    FCH4_sd = sd(FCH4_umol, na.rm = TRUE),
+    FCH4_se = sd(FCH4_umol, na.rm = TRUE) / sqrt(n()),
+    FCH4_median = median(FCH4_umol, na.rm = TRUE),
+    FCH4_min = min(FCH4_umol, na.rm = TRUE),
+    FCH4_max = max(FCH4_umol, na.rm = TRUE),
+    
+    # flux_CH4 statistics - nmol 
+    flux_CH4_mean = mean(flux_CH4, na.rm = TRUE),
+    flux_CH4_sd = sd(flux_CH4, na.rm = TRUE),
+    flux_CH4_se = sd(flux_CH4, na.rm = TRUE) / sqrt(n()),
+    flux_CH4_median = median(flux_CH4, na.rm = TRUE),
+    flux_CH4_min = min(flux_CH4, na.rm = TRUE),
+    flux_CH4_max = max(flux_CH4, na.rm = TRUE),
+    
+    .groups = 'drop'
+  ) %>%
+  # Create a combined label for clarity
+  mutate(
+    Group = paste0(
+      tools::toTitleCase(landscape_position), 
+      " - ", 
+      ifelse(inundated == "Y", "Inundated", "Not Inundated")
+    )
+  ) %>%
+  # Reorder columns
+  select(Group, landscape_position, inundated, n, everything(), 
+         -landscape_position, -inundated) %>%
+  # Round all numeric columns to 2 decimal places
+  mutate(across(where(is.numeric) & !n, ~round(., 2)))
+
+# Display the full table
+cat("FULL SUMMARY STATISTICS TABLE\n")
+print(summary_table)
+
+# Save as CSV
+# write.csv(summary_table, 
+#           "flux_summary_stats_landscape_inundation.csv", 
+#           row.names = FALSE)
+
+# ===================================================================
+# TABLE 2: COMPACT MEAN ± SD FORMAT (FOR MANUSCRIPT)
+# ===================================================================
+
+cat("\n\nCOMPACT TABLE: MEAN ± SD\n")
+
+# Create compact table with mean ± SD format
+compact_table <- df_flux_summary2 %>%
+  group_by(landscape_position, inundated) %>%
+  summarise(
+    n = n(),
+    RECO = paste0(round(mean(RECO_umol, na.rm = TRUE), 2), " ± ", 
+                  round(sd(RECO_umol, na.rm = TRUE), 2)),
+    GPP = paste0(round(mean(GPP_umol, na.rm = TRUE), 2), " ± ", 
+                 round(sd(GPP_umol, na.rm = TRUE), 2)),
+    NEE = paste0(round(mean(NEE_umol, na.rm = TRUE), 2), " ± ", 
+                 round(sd(NEE_umol, na.rm = TRUE), 2)),
+    FCH4 = paste0(round(mean(FCH4_umol, na.rm = TRUE), 2), " ± ", 
+                  round(sd(FCH4_umol, na.rm = TRUE), 2)),
+    FCH4_nmol = paste0(round(mean(flux_CH4, na.rm = TRUE), 2), " ± ", 
+                  round(sd(flux_CH4, na.rm = TRUE), 2)),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    Landscape = tools::toTitleCase(landscape_position),
+    Inundated = ifelse(inundated == "Y", "Yes", "No")
+  ) %>%
+  select(Landscape, Inundated, n, RECO, GPP, NEE, FCH4)
+
+print(compact_table)
+
+# Create a nicely formatted kable table
+compact_kable <- kable(compact_table, 
+                       caption = "Table S1. Mean ± SD of CO2 and CH4 fluxes (µmol C/m²/s) by landscape position and inundation status",
+                       col.names = c("Landscape Position", "Inundated", "n", 
+                                   "RECO", "GPP", "NEE", "FCH4"),
+                       align = c('l', 'l', 'c', 'c', 'c', 'c', 'c'))
+
+print(compact_kable)
+
+# Save as CSV
+# write.csv(compact_table, 
+#           "flux_summary_compact_landscape_inundation.csv", 
+#           row.names = FALSE)
+
+# ===================================================================
+# TABLE 3: SEPARATE TABLES BY FLUX TYPE
+# ===================================================================
+
+# cat("\n\nSEPARATE TABLES BY FLUX TYPE\n")
+# cat("═══════════════════════════════════════════════════════════════\n\n")
+# 
+# # Function to create summary table for one flux
+create_flux_table <- function(data, flux_var, flux_name) {
+  data %>%
+    group_by(landscape_position, inundated) %>%
+    summarise(
+      n = n(),
+      Mean = mean(.data[[flux_var]], na.rm = TRUE),
+      SD = sd(.data[[flux_var]], na.rm = TRUE),
+      SE = sd(.data[[flux_var]], na.rm = TRUE) / sqrt(n()),
+      Median = median(.data[[flux_var]], na.rm = TRUE),
+      Min = min(.data[[flux_var]], na.rm = TRUE),
+      Max = max(.data[[flux_var]], na.rm = TRUE),
+      .groups = 'drop'
+    ) %>%
+    mutate(
+      Landscape = tools::toTitleCase(landscape_position),
+      Inundated = ifelse(inundated == "Y", "Yes", "No"),
+      `Mean ± SD` = paste0(round(Mean, 2), " ± ", round(SD, 2))
+    ) %>%
+    select(Landscape, Inundated, n, Mean, SD, SE, Median, Min, Max, `Mean ± SD`) %>%
+    mutate(across(where(is.numeric) & !n, ~round(., 2)))
+}
+
+# # Create table for each flux
+# reco_table <- create_flux_table(df_flux_summary, "RECO_umol", "RECO")
+# gpp_table <- create_flux_table(df_flux_summary, "GPP_umol", "GPP")
+# nee_table <- create_flux_table(df_flux_summary, "NEE_umol", "NEE")
+# fch4_table <- create_flux_table(df_flux_summary, "FCH4_umol", "FCH4")
+#fch4_table_nmol <-create_flux_table(df_flux_summary, "flux_CH4", "flux_CH4")
+# 
+# cat("\nRECO (Ecosystem Respiration) - µmol C/m²/s:\n")
+# print(reco_table)
+# 
+# cat("\n\nGPP (Gross Primary Production) - µmol C/m²/s:\n")
+# print(gpp_table)
+# 
+# cat("\n\nNEE (Net Ecosystem Exchange) - µmol C/m²/s:\n")
+# print(nee_table)
+# 
+# cat("\n\nFCH4 (Methane Flux) - µmol C/m²/s:\n")
+# print(fch4_table)
+
+# Save individual tables
+# write.csv(reco_table, "summary_RECO_landscape_inundation.csv", row.names = FALSE)
+# write.csv(gpp_table, "summary_GPP_landscape_inundation.csv", row.names = FALSE)
+# write.csv(nee_table, "summary_NEE_landscape_inundation.csv", row.names = FALSE)
+# write.csv(fch4_table, "summary_FCH4_landscape_inundation.csv", row.names = FALSE)
+
+# ===================================================================
+# TABLE 4: PUBLICATION-READY FORMATTED TABLE
+# ===================================================================
+
+cat("\n\nPUBLICATION-READY TABLE\n")
+
+# Standard error function
+se <- function(x, na.rm = TRUE) {
+  sd(x, na.rm = na.rm) / sqrt(sum(!is.na(x)))
+}
+
+
+# Create a publication-ready table with all fluxes with SE 
+pub_table <- df_flux_summary2 %>%
+  group_by(landscape_position, inundated) %>%
+  summarise(
+    N = n(),
+    `RECO (µmol/m²/s)` = paste0(sprintf("%.2f", mean(RECO_umol, na.rm = TRUE)), 
+                                 " ± ", 
+                                 sprintf("%.2f", se(RECO_umol, na.rm = TRUE))),
+    `GPP (µmol/m²/s)` = paste0(sprintf("%.2f", mean(GPP_umol, na.rm = TRUE)), 
+                                " ± ", 
+                                sprintf("%.2f", se(GPP_umol, na.rm = TRUE))),
+    `NEE (µmol/m²/s)` = paste0(sprintf("%.2f", mean(NEE_umol, na.rm = TRUE)), 
+                                " ± ", 
+                                sprintf("%.2f", se(NEE_umol, na.rm = TRUE))),
+    `FCH4 (µmol/m²/s)` = paste0(sprintf("%.2f", mean(FCH4_umol, na.rm = TRUE)), 
+                                 " ± ", 
+                                 sprintf("%.2f", se(FCH4_umol, na.rm = TRUE))),
+`FCH4_nmol (nmol/m²/s)` = paste0(sprintf("%.2f", mean(flux_CH4, na.rm = TRUE)), 
+                                 " ± ", 
+                                 sprintf("%.2f", se(flux_CH4, na.rm = TRUE))),
+    
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    `Landscape Position` = tools::toTitleCase(landscape_position),
+    Inundation = ifelse(inundated == "Y", "Inundated", "Non-inundated")
+  ) %>%
+  select(`Landscape Position`, Inundation, N, 
+         `RECO (µmol/m²/s)`, `GPP (µmol/m²/s)`, 
+         `NEE (µmol/m²/s)`, `FCH4 (µmol/m²/s)`,
+         `FCH4_nmol (nmol/m²/s)`)
+
+print(pub_table)
+
+# Create formatted kable
+pub_kable <- kable(pub_table,
+                   caption = "Table S1. Summary statistics (Mean ± SD) of CO2 and CH4 fluxes by landscape position and inundation status",
+                   align = c('l', 'l', 'c', 'c', 'c', 'c', 'c'))
+
+print(pub_kable)
+
+# Save as CSV
+# write.csv(pub_table, 
+#           "flux_summary_publication_ready.csv", 
+#           row.names = FALSE)
+
+# ===================================================================
+# TABLE 5: SUMMARY BY LANDSCAPE POSITION ONLY 
+# ===================================================================
+
+# cat("\n\nSUMMARY BY LANDSCAPE POSITION (ALL INUNDATION COMBINED)\n")
+
+# 
+# landscape_only_table <- df_flux_summary %>%
+#   group_by(landscape_position) %>%
+#   summarise(
+#     N = n(),
+#     `RECO` = paste0(sprintf("%.2f", mean(RECO_umol, na.rm = TRUE)), 
+#                     " ± ", sprintf("%.2f", sd(RECO_umol, na.rm = TRUE))),
+#     `GPP` = paste0(sprintf("%.2f", mean(GPP_umol, na.rm = TRUE)), 
+#                    " ± ", sprintf("%.2f", sd(GPP_umol, na.rm = TRUE))),
+#     `NEE` = paste0(sprintf("%.2f", mean(NEE_umol, na.rm = TRUE)), 
+#                    " ± ", sprintf("%.2f", sd(NEE_umol, na.rm = TRUE))),
+#     `FCH4` = paste0(sprintf("%.2f", mean(FCH4_umol, na.rm = TRUE)), 
+#                     " ± ", sprintf("%.2f", sd(FCH4_umol, na.rm = TRUE))),
+#     .groups = 'drop'
+#   ) %>%
+#   mutate(`Landscape Position` = tools::toTitleCase(landscape_position)) %>%
+#   select(`Landscape Position`, N, RECO, GPP, NEE, FCH4)
+# 
+# print(landscape_only_table)
+
+# ===================================================================
+# TABLE 6: SUMMARY BY INUNDATION ONLY 
+# ===================================================================
+# 
+# cat("\n\nSUMMARY BY INUNDATION STATUS (ALL LANDSCAPES COMBINED)\n")
+
+# 
+# inundation_only_table <- df_flux_summary %>%
+#   group_by(inundated) %>%
+#   summarise(
+#     N = n(),
+#     `RECO` = paste0(sprintf("%.2f", mean(RECO_umol, na.rm = TRUE)), 
+#                     " ± ", sprintf("%.2f", sd(RECO_umol, na.rm = TRUE))),
+#     `GPP` = paste0(sprintf("%.2f", mean(GPP_umol, na.rm = TRUE)), 
+#                    " ± ", sprintf("%.2f", sd(GPP_umol, na.rm = TRUE))),
+#     `NEE` = paste0(sprintf("%.2f", mean(NEE_umol, na.rm = TRUE)), 
+#                    " ± ", sprintf("%.2f", sd(NEE_umol, na.rm = TRUE))),
+#     `FCH4` = paste0(sprintf("%.2f", mean(FCH4_umol, na.rm = TRUE)), 
+#                     " ± ", sprintf("%.2f", sd(FCH4_umol, na.rm = TRUE))),
+#     .groups = 'drop'
+#   ) %>%
+#   mutate(`Inundation Status` = ifelse(inundated == "Y", "Inundated", "Non-inundated")) %>%
+#   select(`Inundation Status`, N, RECO, GPP, NEE, FCH4)
+# 
+# print(inundation_only_table)
+
+
+```
+
+#save summary table 
+```{r}
+
+library(writexl)
+write_xlsx(pub_table, "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/soilchamber_Flux_landpos.inun_summary.xlsx")
+```
+
+#Table with the inundated slope included
+```{r}
+# Create a publication-ready table with all fluxes
+pub_table2 <- df_wide %>%
+  group_by(landscape_position, inundated) %>%
+  summarise(
+    N = n(),
+    `RECO (µmol/m²/s)` = paste0(sprintf("%.2f", mean(RECO_umol, na.rm = TRUE)), 
+                                 " ± ", 
+                                 sprintf("%.2f", se(RECO_umol, na.rm = TRUE))),
+    `GPP (µmol/m²/s)` = paste0(sprintf("%.2f", mean(GPP_umol, na.rm = TRUE)), 
+                                " ± ", 
+                                sprintf("%.2f", se(GPP_umol, na.rm = TRUE))),
+    `NEE (µmol/m²/s)` = paste0(sprintf("%.2f", mean(NEE_umol, na.rm = TRUE)), 
+                                " ± ", 
+                                sprintf("%.2f", se(NEE_umol, na.rm = TRUE))),
+    `FCH4 (µmol/m²/s)` = paste0(sprintf("%.2f", mean(FCH4_umol, na.rm = TRUE)), 
+                                 " ± ", 
+                                 sprintf("%.2f", se(FCH4_umol, na.rm = TRUE))),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    `Landscape Position` = tools::toTitleCase(landscape_position),
+    Inundation = ifelse(inundated == "Y", "Inundated", "Non-inundated")
+  ) %>%
+  select(`Landscape Position`, Inundation, N, 
+         `RECO (µmol/m²/s)`, `GPP (µmol/m²/s)`, 
+         `NEE (µmol/m²/s)`, `FCH4 (µmol/m²/s)`)
+
+print(pub_table2)
+```
+
+#save summary table with inundated slope 
+```{r}
+
+library(writexl)
+write_xlsx(pub_table2, "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/soilchamber_Flux_landpos.inun_summary2.xlsx")
+```
+
+
+#Save table 
+```{r}
+library(writexl)
+write_xlsx(summary_stats_landpos, "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/soilchamber_enviro_vars_means_landpos.xlsx")
+```
+
+
+#save figure 
+```{r}
+
+ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/enviro_variables_landposinun3.png",  # File name and extension
+  plot = combined_plot2,        # The plot to save (default is the last plot created)
+  width = 27,                 # Width in inches
+  height = 35,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+
+```
+
+
+#AGU figs
+
+#NEE, RECO, GPP - landscape
+
+```{r}
+# Create the boxplot: NEE and RECO flux vs landscape position 
+
+df_long_cc <- df_long2 %>%
+  filter(!is.na(flux_value))
+
+#filter out the inundated slope with n=2
+df_long_cc<- df_long_cc %>%
+  filter(!(landscape_position == "slope" & inundated == "Y"))
+
+#filter out extremes 
+ #filter(flux_umol >= -6.5 & flux_umol <= 6.5), 
+
+unique(df_long_cc$flux_type)
+
+# Asterisks for 
+# vwc_asterisk <- data.frame(
+#   landscape_position = c("lowland", "upland"),  # Both positions
+#   inundated = c("Y", "Y"),                      # Both in Y panel
+#   label = c("*", "*"),                          # Both get asterisks
+#   y_position = c(97, 97)                      # Same height
+# )
+
+
+#=== Landscape fluxes without FCH4 ========================
+landscape_C_fluxes <- ggplot(df_long_cc %>%
+                               filter(flux_type !="FCH4"), 
+                             aes(x = landscape_position, y = (flux_umol), fill = flux_type)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  stat_summary(fun = mean, geom = "point", shape = 18, color = "black", size = 3, position = position_dodge(0.8))+
+  labs(title = "Council Soil Chamber GPP, NEE, and RECO by Landscape Position",
+       x = "Landscape Position",
+       #y = expression(Flux~Value~(gCO[2]-C~m^-2~s^-1)),
+        y = expression(atop("CO"[2]~"Flux", "("*mu* "mol" ~ CO[2]~m^-2~s^-1*")")),
+        #y = expression("Flux Value (" * mu * "mol " ~ C ~ m^-2 * ~ s^-1 * ")"),
+       fill = "Flux Type") +
+  geom_hline(yintercept = 0) +
+    scale_y_continuous(limits = c(-6, 6))+ 
+                     # breaks = seq(-7, 7, 1.5)+  # Specify the tick positions you want)+
+  theme_bw() +
+  theme(
+   axis.title.x = element_text(size = 14),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 14),
+   axis.text.y = element_text(size = 12, face = "bold"))
+
+landscape_C_fluxes 
+
+
+#=== Landscape fluxes without FCH4 axis flipped ========================
+landscape_C_fluxes2 <- ggplot(df_long_cc %>%
+                               filter(flux_type !="FCH4"), 
+                             aes(x = flux_type, y = (flux_umol), fill = landscape_position)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  stat_summary(fun = mean, geom = "point", shape = 18, color = "black", size = 3, position = position_dodge(0.8))+
+  labs(#title = "Council Soil Chamber GPP, NEE, and RECO by Landscape Position",
+      # x = "Landscape Position",
+       x = "Flux Type",
+       #y = expression(Flux~Value~(gCO[2]-C~m^-2~s^-1)),
+        y = expression(bold(atop("CO"[2]~"Flux", "("*mu* "mol" ~ CO[2]~m^-2~s^-1*")"))),
+        #y = expression("Flux Value (" * mu * "mol " ~ C ~ m^-2 * ~ s^-1 * ")"),
+       #fill = "Flux Type") +
+       fill = "Landscape Position") +
+  geom_hline(yintercept = 0) +
+    scale_x_discrete(labels = c("NEE" = "NEE",
+                               "GPP" = "GPP",
+                               "RECO" = expression(R[ECO]))) +
+    scale_y_continuous(limits = c(-6, 6))+ 
+                     # breaks = seq(-7, 7, 1.5)+  # Specify the tick positions you want)+
+  theme_bw() +
+  theme(
+   axis.title.x = element_text(size = 14, face = "bold", color = "black"),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 12, face = "bold", color = "black"), #Adj size for x-axis text
+   axis.title.y = element_text(size = 14, face = "bold", color = "black"),
+   axis.text.y = element_text(size = 12, face = "bold", color = "black"),
+   legend.text = element_text(size = 14, face = "bold"),
+   legend.title = element_text(size = 14, face = "bold"),
+   legend.position = "bottom") #moe legend to bottom for combined fig 
+
+landscape_C_fluxes2 
+
+
+```
+
+#save image to maintain dimensions 
+```{r}
+#fig 1 
+ ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_C_fluxes_final.png",  # File name and extension
+  plot = landscape_C_fluxes,        # The plot to save (default is the last plot created)
+  width = 18,                 # Width in inches
+  height = 12,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+
+
+#flipped axis - fig2
+ ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_C_fluxes_final2.png",  # File name and extension
+  plot = landscape_C_fluxes2,        # The plot to save (default is the last plot created)
+  width = 18,                 # Width in inches
+  height = 12,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+ 
+```
+# *****************
+
+#Paneled figure with CO2 fluxes and CH4 fluxes on landscape scale 
+
+
+```{r}
+library(patchwork)
+
+#small dataframe for stats letters
+ch4_letters <- data.frame(
+  landscape_position = c("lowland", "slope", "upland"),
+  label = c("a", "b", "b"),
+  y = 330  # y position for all letters
+)
+
+#CH4 in nmol 
+p_ch4 <- ggplot(df_wide_filtered,
+                aes(x = "CH4", y = flux_CH4, fill = landscape_position)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  # stat_summary(fun = mean, geom = "point", shape = 18, color = "black", size = 3,
+  #              position = position_dodge(0.8)) +
+  
+  stat_summary(aes(fill = landscape_position), 
+             fun = mean, geom = "point", shape = 23,
+             color = "black", size = 2, stroke = 2,
+             position = position_dodge(0.8)) +
+scale_fill_manual(values = c("lowland" = "#F8766D",   # red 
+                              "slope" = "#00BA38",        # green
+                              "upland" = "#619CFF"),    # blue 
+                  aesthetics = "fill") +
+
+  labs(#title = "Council Soil Chamber CH4 by Landscape Position",
+       x = "Flux Type",
+       y = expression(bold(atop("CH"[4]~"Flux", "(nmol"~ CH[4]~m^-2~s^-1*")"))),
+       fill = "Landscape Position") +
+  geom_hline(yintercept = 0) +
+  scale_x_discrete(labels = c("CH4" = expression(CH[4]))) +
+  scale_y_continuous(limits = c(-100, 335),
+                       breaks = c(-100, 0, 100, 200, 300),  # forces -70 to appear
+                     position = "right") + #move to right for shared figure 
+  theme_bw() +
+  theme(
+    axis.title.x = element_text(size = 14, face = "bold", color = "black"),
+    axis.text.x = element_text(size = 12, face = "bold", color = "black"),
+    axis.title.y = element_text(size = 14, face = "bold", color = "black"),
+    axis.text.y = element_text(size = 12, face = "bold", color = "black"),
+    legend.position = "none" ) +
+  
+#add stat letters
+  geom_text(data = ch4_letters,
+          aes(x = "CH4", y = y, label = label, group = landscape_position),
+          position = position_dodge(0.8),  # matches boxplot dodging exactly
+          fontface = "bold", size = 5,
+          inherit.aes = FALSE)
+      
+ p_ch4
+
+# Combine with patchwork
+# (landscape_C_fluxes2 + p_ch4) +
+#   plot_layout(guides = "collect", widths = c(3, 1)) &
+#  theme(legend.position = "bottom")
+  
+
+# # Combine with shared legend at bottom
+# (p_co2 + p_ch4) +
+#   plot_layout(guides = "collect", widths = c(3, 1)) &  # wider CO2 panel since 3 flux types
+#   theme(legend.position = "bottom")
+
+
+```
+
+
+```{r}
+combined_fig <- ((landscape_C_fluxes2 + theme(legend.margin = margin(l = 100))) + (p_ch4 + theme(legend.position = "none"))) +
+  #plot_layout(guides = "collect", widths = c(3, 1)) &
+  plot_layout(widths = c(3, 1)) &
+  theme(#legend.position = "bottom",
+        axis.title.x = element_blank())  # remove individual x-axis labels
+
+# Add shared title and x-axis label
+combined_fig <- combined_fig +
+  plot_annotation(
+    title = "Chamber Fluxes by Landscape Position",
+    theme = theme(plot.title = element_text(face = "bold", size = 14, hjust = 0.5))
+  )
+
+# Add shared x-axis label using a bottom label
+# combined_fig <- wrap_elements(combined_fig) +
+#   labs(tag = "Flux Type") +
+#   theme(plot.tag.position = "bottom",
+#         plot.tag = element_text(size = 14, hjust = 0.5, vjust = 0))
+
+print(combined_fig)
+
+```
+
+#Save combined fig of all fluxes ~ landscape position
+```{r}
+# #flipped axis - fig2
+ ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_C_fluxes_all.png",  # File name and extension
+  plot = combined_fig,        # The plot to save (default is the last plot created)
+  width = 24,                 # Width in inches
+  height = 12,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+
+# ggsave("C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_C_fluxes_all", combined_fig,
+#         width = 7, height = 5, dpi = 600)
+
+
+```
+
+
+#CH4 figs 
+
+#CH4 landscape fig with stats 
+
+```{r}
+# all plot type - FCH4 vs landscape position only- in umol/m2/s
+landscape_CH4_fluxes <- ggplot(df_wide_filtered, aes(x = landscape_position, y = flux_CH4, fill = landscape_position)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  stat_summary(fun = mean, geom = "point", shape = 18, color = "black", size = 4, position = position_dodge(0.8))+
+  labs(title = "Methane Fluxes vs Landscape Position",
+       x = "Landscape Position",
+       y = expression("Flux ("*mu* "mol" ~ CH[4]/m^2/s*")"))+
+   geom_hline(yintercept = 0)+
+ scale_y_continuous(limits = c(-70, 315)) + #, #cut out a few bit outliers here to show trend 
+  theme_bw(base_size = 15)+ 
+  theme(legend.position = "none")+
+  theme(
+   axis.title.x = element_text(size = 17),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 14, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 17),
+   axis.text.y = element_text(size = 14, face = "bold"))+
+      annotate("text", x = "lowland", y = 315, label = "a", fontface = "bold", size = 7) +
+      annotate("text", x = "slope", y = 315, label = "bc", fontface = "bold", size = 7) +
+      annotate("text", x = "upland", y = 315, label = "c", fontface = "bold", size = 7) 
+  
+landscape_CH4_fluxes
+
+
+#looking at upland outlier which is > 600 nmol FCH4
+landscape_CH4_fluxes2 <- ggplot(df_wide_filtered, aes(x = landscape_position, y = flux_CH4, fill = landscape_position)) +
+  geom_boxplot(position = position_dodge(0.8)) 
+
+landscape_CH4_fluxes2
+
+```
+
+
+#FCH4 landpos vs inun fig with stats
+```{r}
+#=========== Landpos x Inundated ========================
+
+
+# all plot type - FCH4 vs landscape position & inundation - in umol/m2/s
+landscapeinun_CH4_fluxes <- ggplot(df_wide_filtered, aes(x = landscape_position, y = (FCH4_umol), fill = inundated)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  stat_summary(fun = mean, geom = "point", shape = 18, color = "black", size = 4, position = position_dodge(0.8))+
+  labs(title = "Methane Fluxes vs Landscape Position and Inundation",
+       x = "Landscape Position",
+       y = expression("Flux ("*mu* "mol" ~ CH[4]/m^2/s*")"),
+       fill = "Inundated")+
+   geom_hline(yintercept = 0)+
+ scale_y_continuous(limits = c(-0.13,0.4)) + #, #cut out a few bit outliers here to show trend 
+  theme_bw(14)+ 
+  theme(
+   axis.title.x = element_text(size = 17),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 14, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 17),
+   axis.text.y = element_text(size = 14, face = "bold")) +
+
+# With dodging, positions are roughly:
+# lowland-N: 0.8, lowland-Y: 1.2
+# slope-N: 1.8, slope-Y: 2.2
+# upland-N: 2.8, upland-Y: 3.2
+  
+  # Letters on non-inundated boxes
+  annotate("text", x = 0.8, y = 0.4, label = "a", fontface = "bold", size = 7) +  # lowland-N
+  annotate("text", x = 1.8, y = 0.4, label = "b", fontface = "bold", size = 7) +  # slope-N
+  annotate("text", x = 2.8, y = 0.4, label = "b", fontface = "bold", size = 7) +  # upland-N
+  
+  # Asterisks on inundated boxes
+  annotate("text", x = 1.2, y = 0.38, label = "*", fontface = "bold", size = 10) +  # lowland-Y
+  annotate("text", x = 3.2, y = 0.38, label = "*", fontface = "bold", size = 10)    # upland-Y
+  
+landscapeinun_CH4_fluxes
+  
+
+```
+
+
+#save image to maintain dimensions 
+```{r}
+ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_CH4_fluxes_stats.png",  # File name and extension
+  plot = landscape_CH4_fluxes,        # The plot to save (default is the last plot created)
+  width = 15,                 # Width in inches
+  height = 10,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+
+#with inundation 
+ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscapeinun_CH4_fluxes_stats.png",  # File name and extension
+  plot = landscapeinun_CH4_fluxes,        # The plot to save (default is the last plot created)
+  width = 18,                 # Width in inches
+  height = 13,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+```
+
+#facetwrapped
+```{r}
+# all plot type - FCH4 vs landscape position & inundation - in umol/m2/s
+landscapeinun_CH4_fluxes2 <- ggplot(df_wide_filtered, aes(x = landscape_position, y = (FCH4_umol), fill = inundated)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  facet_wrap(~inundated)+
+  stat_summary(fun = mean, geom = "point", shape = 18, color = "black", size = 4, position = position_dodge(0.8))+
+  labs(title = "Methane Fluxes vs Landscape Position and Inundation",
+       x = "Landscape Position",
+       y = expression(atop("CH"[4]~"Flux", "("*mu* "mol" ~ CH[4]~m^-2~s^-1*")")),
+       fill = "Inundated")+
+   geom_hline(yintercept = 0)+
+ scale_y_continuous(limits = c(-0.13,0.4)) + #, #cut out a few bit outliers here to show trend 
+  theme_bw(12)+ 
+  theme(
+   axis.title.x = element_text(size = 17),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 10, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 17),
+   axis.text.y = element_text(size = 14, face = "bold")) # +
+ # annotate("text", x = 0.8, y = "lowland", label = "a", fontface = "bold", size = 7) + 
+ #  annotate("text", x = 1.8, y = "slope", label = "b", fontface = "bold", size = 7)+
+ #    annotate("text", x = 2.8, y = "upland", label = "b", fontface = "bold", size = 7)
+
+
+landscapeinun_CH4_fluxes2
+
+
+
+landscapeinun_CH4_fluxes3 <- ggplot(df_wide_filtered %>% filter(!landscape_position == "slope"), aes(x = inundated, y = (FCH4_umol), fill = inundated)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  facet_wrap(~landscape_position)+
+  stat_summary(fun = mean, geom = "point", shape = 18, color = "black", size = 4, position = position_dodge(0.8))+
+  labs(title = "Methane Fluxes vs Landscape Position and Inundation",
+       x = "Inundation",
+      y = expression(atop("CH"[4]~"Flux", "("*mu* "mol" ~ CH[4]~m^-2~s^-1*")")),
+       fill = "Inundated")+
+   geom_hline(yintercept = 0)+
+ scale_y_continuous(limits = c(-0.13,0.4)) + #, #cut out a few bit outliers here to show trend 
+  theme_bw(base_size=12)+ 
+  theme(
+   axis.title.x = element_text(size = 17),  # Adjust size for x-axis label
+    axis.text.x = element_text(size = 10, face = "bold"), # Adjust size for x-axis text
+   axis.title.y = element_text(size = 17),
+   axis.text.y = element_text(size = 14, face = "bold")) 
+
+landscapeinun_CH4_fluxes3
+```
+```{r}
+landscapeinun_CH4_fluxes3 <- ggplot(df_wide_filtered, aes(x = landscape_position, y = (flux_CH4), fill = inundated)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  facet_wrap(~inundated)+
+  stat_summary(fun = mean, geom = "point", shape = 18, color = "black", size = 4, position = position_dodge(0.8))
+
+landscapeinun_CH4_fluxes3 
+```
+
+
+```{r}
+ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_CH4_fluxes_inun.png",  # File name and extension
+  plot = landscapeinun_CH4_fluxes2,        # The plot to save (default is the last plot created)
+  width = 15,                 # Width in inches
+  height = 10,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+
+
+ggsave(
+  filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_CH4_fluxes_landpos.png",  # File name and extension
+  plot = landscapeinun_CH4_fluxes3,        # The plot to save (default is the last plot created)
+  width = 15,                 # Width in inches
+  height = 10,                # Height in inches
+  dpi = 600,                 # Resolution in dots per inch
+  units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+)
+```
+
+
+#adding stats annotations, combining figures 
+```{r}
+library(patchwork)
+
+# ============================================================================
+# FIGURE 1: Add letters "a", "b", "b" to inundated = N panel
+# ============================================================================
+
+Fig1 <- ggplot(df_wide_filtered, aes(x = landscape_position, y = (FCH4_umol), fill = inundated)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  facet_wrap(~inundated) +
+  stat_summary(fun = mean, geom = "point", shape = 18, color = "black", size = 4, position = position_dodge(0.8)) +
+  labs(title = "Methane Fluxes vs Landscape Position and Inundation",
+       x = "Landscape Position",
+     y = expression(atop("CH"[4]~"Flux", "("*mu* "mol" ~ CH[4]~m^-2~s^-1*")")),
+       fill = "Inundated") +
+  geom_hline(yintercept = 0) +
+  scale_y_continuous(limits = c(-0.13, 0.4)) +
+  theme_bw() + 
+  theme(
+    axis.title.x = element_text(size = 17),
+    axis.text.x = element_text(size = 10, face = "bold"),
+    axis.title.y = element_text(size = 17, face = "bold"),
+    axis.text.y = element_text(size = 14, face = "bold") ,
+      strip.text = element_text(face = "bold") 
+  ) +
+  
+  # Add letters ONLY to inundated = N panel
+  # geom_text places them above the boxes
+  geom_text(
+    data = df_wide_filtered %>% filter(inundated == "N"),
+    aes(x = landscape_position, y = 0.37, label = c("a", "b", "b")[as.numeric(factor(landscape_position))]),
+    fontface = "bold", 
+    size = 5,
+    inherit.aes = FALSE
+  )
+
+print(Fig1)
+
+# ============================================================================
+# FIGURE 2: Add "*" above inundated = Y for lowland and upland
+# ============================================================================
+
+Fig2 <- ggplot(df_wide_filtered %>% filter(!landscape_position == "slope"), 
+               aes(x = inundated, y = (FCH4_umol), fill = inundated)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  facet_wrap(~landscape_position) +
+  stat_summary(fun = mean, geom = "point", shape = 18, color = "black", size = 4, position = position_dodge(0.8)) +
+  labs(
+    #title = "Methane Fluxes vs Landscape Position and Inundation",
+       x = "Inundation",
+        y = expression(atop("CH"[4]~"Flux", "("*mu* "mol" ~ CH[4]~m^-2~s^-1*")")),
+       fill = "Inundated") +
+  geom_hline(yintercept = 0) +
+  scale_y_continuous(limits = c(-0.13, 0.4)) +
+  theme_bw() + 
+  theme(
+    axis.title.x = element_text(size = 17),
+    axis.text.x = element_text(size = 10, face = "bold"),
+    axis.title.y = element_text(size = 17, face = "bold"),
+    axis.text.y = element_text(size = 14, face = "bold"),
+       strip.text = element_text(face = "bold") 
+  ) +
+  
+  # Add "*" above Y for both lowland and upland
+  geom_text(
+    data = df_wide_filtered %>% 
+      filter(!landscape_position == "slope", inundated == "Y") %>%
+      distinct(landscape_position, inundated),
+    aes(x = inundated, y = 0.37, label = "*"),
+    fontface = "bold",
+    size = 10,
+    inherit.aes = FALSE
+  )
+
+print(Fig2)
+
+# ============================================================================
+# COMBINE FIGURES (stacked vertically)
+# ============================================================================
+
+combined_figure <- Fig1 / Fig2 #+
+  #plot_annotation(tag_levels = 'A')  # Optional: adds (A) and (B) labels
+
+print(combined_figure)
+
+# Save
+# ggsave("combined_ch4_landscape_figures.png", combined_figure, 
+#        width = 10, height = 12, dpi = 300)
+```
+
+
+#Save
+```{r}
+ggsave("C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_CH4_fluxes_landpos_inun_combined2.png", combined_figure, 
+        width = 8, height = 8, dpi = 600)
+
+```
+
+#Save combined fig 
+```{r}
+# ggsave(
+#   filename = "C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_CH4_fluxes_landpos_inun_combined2.png",  # File name and extension
+#   plot = combined_figure,        # The plot to save (default is the last plot created)
+#   width = 10,                 # Width in inches
+#   height = 10,                # Height in inches
+#   dpi = 600,                 # Resolution in dots per inch
+#   units = "cm"               # Units for width and height (can be "in", "cm", or "mm")
+# )
+```
+
+#FCH4 in nmol 
+
+#adding stats annotations, combining figures 
+```{r}
+library(patchwork)
+
+# ============================================================================
+# FIGURE 1: Add letters "a", "b", "b" to inundated = N panel
+# ============================================================================
+
+CH4_nmol.1 <- ggplot(df_wide_filtered, aes(x = landscape_position, y = (flux_CH4), fill = inundated)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  facet_wrap(~inundated) +
+  stat_summary(fun = mean, geom = "point", shape = 18, color = "black", size = 4, position = position_dodge(0.8)) +
+  labs(title = "Methane Fluxes vs Landscape Position and Inundation",
+       x = "Landscape Position",
+        y = expression(atop("CH"[4]~"Flux", "(nmol" ~ CH[4]~m^-2~s^-1*")")),
+       fill = "Inundated") +
+  geom_hline(yintercept = 0) +
+  #scale_y_continuous(limits = c(-0.13, 0.4)) +
+      scale_y_continuous(limits = c(-100, 335),
+                       breaks = c(-100, 0, 100, 200, 300)) +  # forces -70 to appear
+  theme_bw() + 
+  theme(
+    axis.title.x = element_text(size = 17),
+    axis.text.x = element_text(size = 10, face = "bold"),
+    axis.title.y = element_text(size = 17, face = "bold"),
+    axis.text.y = element_text(size = 14, face = "bold") ,
+      strip.text = element_text(face = "bold") 
+  ) +
+  
+  # Add letters ONLY to inundated = N panel
+  # geom_text places them above the boxes
+  geom_text(
+    data = df_wide_filtered %>% filter(inundated == "N"),
+    aes(x = landscape_position, y = 330, label = c("a", "b", "b")[as.numeric(factor(landscape_position))]),
+    fontface = "bold", 
+    size = 5,
+    inherit.aes = FALSE
+  )
+
+print(CH4_nmol.1)
+
+# ============================================================================
+# FIGURE 2: Add "*" above inundated = Y for lowland and upland
+# ============================================================================
+
+CH4_nmol.2 <- ggplot(df_wide_filtered %>% filter(!landscape_position == "slope"), 
+               aes(x = inundated, y = (flux_CH4), fill = inundated)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  facet_wrap(~landscape_position) +
+  stat_summary(fun = mean, geom = "point", shape = 18, color = "black", size = 4, position = position_dodge(0.8)) +
+  labs(
+    #title = "Methane Fluxes vs Landscape Position and Inundation",
+       x = "Inundation",
+        y = expression(atop("CH"[4]~"Flux", "(nmol" ~ CH[4]~m^-2~s^-1*")")),
+       fill = "Inundated") +
+  geom_hline(yintercept = 0) +
+  #scale_y_continuous(limits = c(-0.13, 0.4)) +
+    scale_y_continuous(limits = c(-100, 335),
+                       breaks = c(-100, 0, 100, 200, 300)) +  # forces -70 to appear
+  theme_bw() + 
+  theme(
+    axis.title.x = element_text(size = 17),
+    axis.text.x = element_text(size = 10, face = "bold"),
+    axis.title.y = element_text(size = 17, face = "bold"),
+    axis.text.y = element_text(size = 14, face = "bold"),
+       strip.text = element_text(face = "bold") 
+  ) +
+  
+  # Add "*" above Y for both lowland and upland
+  geom_text(
+    data = df_wide_filtered %>% 
+      filter(!landscape_position == "slope", inundated == "Y") %>%
+      distinct(landscape_position, inundated),
+    aes(x = inundated, y = 300, label = "*"),
+    fontface = "bold",
+    size = 10,
+    inherit.aes = FALSE
+  )
+
+print(CH4_nmol.2)
+
+# ============================================================================
+# COMBINE FIGURES (stacked vertically)
+# ============================================================================
+
+combined_figure2 <- CH4_nmol.1 / CH4_nmol.2 #+
+  #plot_annotation(tag_levels = 'A')  # Optional: adds (A) and (B) labels
+
+print(combined_figure2)
+
+# Save
+# ggsave("combined_ch4_landscape_figures.png", combined_figure, 
+#        width = 10, height = 12, dpi = 300)
+```
+
+#save combined fig in nmol 
+
+#Save
+```{r}
+ggsave("C:/Users/kkent/Documents/Github Flux Network/Council_Flux_Analysis_Paper/Council Figures/Soil Chambers/landscape_CH4_fluxes_landpos_inun_combined_nmol.png", combined_figure2, 
+        width = 8, height = 8, dpi = 600)
+
+```
+
+#END
+
+
+
+#=== old, exploratory working code ==========================
+
+```{r}
+
+
+
+df_wide_FCH4 <- df_wide_filtered %>%
+  group_by(landscape_position, inundated) %>%
+  filter(n() >= 5) %>%
+  ungroup()
+
+#Kruskall-Wallis test - if sig, shows there is some kind of association between the variables 
+kruskal.test(VWC ~ landscape_position, data = df_FCH4)#p<0.001, SIG
+kruskal.test(inundated ~ landscape_position, data = df_FCH4)#
+```
+
+
+```{r}
+#inun
+df_inundated <- df_wide_filtered_flux %>%
+  filter(inundated == "Y")
+
+wilcox.test(flux_CH4 ~ landscape_position, 
+            data = df_inundated,
+            subset = landscape_position %in% c("upland", "lowland")) #p=0.07
+
+#non-inun
+df_notinundated <- df_wide_filtered_flux %>%
+  filter(inundated == "N")
+
+wilcox.test(flux_CH4 ~ landscape_position, 
+            data = df_notinundated,
+            subset = landscape_position %in% c("upland", "lowland")) #p = 0.00048 * SIG 
+
+
+wilcox.test(flux_CH4 ~ landscape_position, 
+            data = df_notinundated,
+            subset = landscape_position %in% c("upland", "slope")) #p = 0.99
+
+wilcox.test(flux_CH4 ~ landscape_position, 
+            data = df_notinundated,
+            subset = landscape_position %in% c("lowland", "slope")) #p = 0.0503 *borderline ***
+
+
+```
+#Playing around with permutations to account for small sample size and unequal sample sizes -- using to cocmpare with and verify the kruskall-wallis and wilcox tests 
+
+#Permutation test — makes no assumptions about distribution and handles unequal sample sizes well by randomly shuffling group labels many times to build a null distribution
+
+```{r}
+library(coin)
+kruskal_test(flux_CH4 ~ factor(landscape_position), 
+             #data = df_wide_filtered_flux %>% filter(inundated == "N"),
+             data = df_notinundated,
+             distribution = approximate(nresample = 9999)) #p-value = 0.0023
+```
+#Bootstrap Wilcoxon 
+```{r}
+wilcox_test(flux_CH4 ~ factor(landscape_position),
+            #data = df_inundated %>% filter(landscape_position %in% c("upland", "lowland")),
+            data = df_inundated,
+            distribution = approximate(nresample = 9999)) #p-value = 0.06961
+```
+```{r}
+library(coin)
+library(rcompanion)
+
+df_noninundated <- df_wide_filtered_flux %>%
+  filter(inundated == "N") %>%
+  mutate(landscape_position = factor(landscape_position))
+
+
+
+# Pairwise permutation tests
+pairs <- combn(levels(df_noninundated$landscape_position), 2, simplify = FALSE)
+
+pairwise_results <- lapply(pairs, function(pair) {
+  df_pair <- df_noninundated %>%
+    filter(landscape_position %in% pair) %>%
+    mutate(landscape_position = factor(landscape_position))
+  
+  test <- wilcox_test(flux_CH4 ~ landscape_position,
+                      data = df_pair,
+                      distribution = approximate(nresample = 9999))
+  
+  data.frame(
+    group1 = pair[1],
+    group2 = pair[2],
+    p_value = round(pvalue(test), 4)
+  )
+})
+
+# Combine results
+pairwise_df <- do.call(rbind, pairwise_results)
+
+# Apply Benjamini-Hochberg correction for multiple comparisons
+pairwise_df$p_adjusted <- round(p.adjust(pairwise_df$p_value, method = "BH"), 4)
+
+print(pairwise_df)
+```
+```{r}
+library(dunn.test)
+
+cat("=== Kruskal-Wallis Test ===\n")
+kw_test <- kruskal.test(flux_CH4 ~ landscape_position, data = df_noninundated)
+print(kw_test)
+
+cat("\n=== Dunn's Post-hoc: NO correction ===\n")
+dunn.test(df_noninundated$flux_CH4, 
+          df_noninundated$landscape_position,
+          method = "none",
+          kw = FALSE,
+          label = TRUE)
+
+cat("\n=== Dunn's Post-hoc: Bonferroni correction ===\n")
+dunn.test(df_noninundated$flux_CH4, 
+          df_noninundated$landscape_position,
+          method = "bonferroni",
+          kw = FALSE,
+          label = TRUE)
+
+cat("\n=== Dunn's Post-hoc: BH correction ===\n")
+dunn.test(df_noninundated$flux_CH4, 
+          df_noninundated$landscape_position,
+          method = "bh",
+          kw = FALSE,
+          label = TRUE)
+```
+
