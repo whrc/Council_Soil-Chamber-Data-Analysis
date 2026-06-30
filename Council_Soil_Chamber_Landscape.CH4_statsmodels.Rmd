@@ -1,5 +1,5 @@
 ---
-title: "Council_Soil_Chamber_Landscape.CH4"  #FCH4 in gC/m2/s, flux_CH4 is in nano mol/m2/s
+title: "Council_Soil_Chamber_Landscape.CH4"  #FCH4 in gC/m2/s, flux_CH4 is in nano mol/m2/s - measurement dates range mostly in June and July, with some August and very few Sept measurements 
 output: html_document
 date: "2024-12-03"
 
@@ -147,7 +147,8 @@ sum(is.na(df_FCH4$air_temp)) #0
 df_FCH4 <- df_FCH4 %>%
    filter(complete.cases(flux_value, thawdepth, soil_temp_10_cm,landscape_position,inundated, VWC, air_temp)) #went from 185 to 158 obs 
 
-
+summary(df_FCH4$measurement_date)
+plot(df_FCH4$measurement_date,df_FCH4$flux_value)
 ```
 
 
@@ -813,7 +814,7 @@ lsmeans(gls_VWCinun, adjust = "Tukey", pairwise ~ landscape_position) #lowland -
 #### Important to note KW test is the non-parametric equivalent of a one-way anova, so it can only test one variable at a time, and can't test continuous/numeric variables. It also can't incorporate a variance structure. Spearman Correlation can be used for continuous variables*
 #testing each var independently isn't ideal because it can't capture what might happen when other variables are included...therefore it's better to find a test that can account for multiple variables, like the robust regression in code chunk following this one 
 ```{r}
-# Test landscape position effect on GPP
+# Test landscape position effect
 kruskal.test(flux_value ~ landscape_position, data = df_FCH4) #p=0.00031, *SIG* 
 
 #wilcoxon test
@@ -996,16 +997,6 @@ rf_soilCH4_full <- randomForest(flux_value  ~ landscape_position + VWC + soil_te
 varImpPlot(rf_soilCH4_full) #shows thaw depth is most important, followed by inundated, VWC - air temp is least powerful predictor 
 
 
-
-rf_soilCH4_fullinteract <- randomForest(flux_value  ~ landscape_position +  soil_temp_10_cm + thawdepth + VWC * inundated + air_temp,
-                             data = df_FCH4,
-                             ntree = 500,
-                             importance = TRUE)
-
-
-# Look at variable importance
-varImpPlot(rf_soilCH4_fullinteract) #shows thaw depth is most important, followed by inundated, VWC - air temp is least powerful predictor 
-
 #removing air temp and inundated 
 rf_soilCH4_reduced1 <- randomForest(flux_value  ~ landscape_position +  soil_temp_10_cm + thawdepth + VWC,
                              data = df_FCH4,
@@ -1072,13 +1063,6 @@ varImpPlot(rf_soilCH4_interact) #thawdepth = 10, VWC_thawdepth interact = 8, inu
 
 
 
-rf_soilCH4_robustinteract6 <- randomForest(flux_value ~ landscape_position + inundated + VWC + thawdepth,
-                             data = df_FCH4,
-                             ntree = 500,
-                             importance = TRUE)
-
-varImpPlot(rf_soilCH4_robustinteract6)
-
 ```
 
 
@@ -1086,6 +1070,11 @@ varImpPlot(rf_soilCH4_robustinteract6)
 ```{r}
 #partial regressions looks at contribution of predictor variable while holding the other variables constant
 # The partial regression plots show the relationship between each predictor and the response after removing the linear effects of all other predictors. The slope of the line in each plot corresponds to the regression coefficient for that variable in the full model.
+
+# Multiple regression with lm
+multiple_reg <- lm(flux_value ~ landscape_position + VWC + soil_temp_10_cm + thawdepth + inundated,
+                   data = df_FCH4)
+
 
 # Method 1: Using car package
 library(car)
